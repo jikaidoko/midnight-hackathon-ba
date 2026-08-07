@@ -259,7 +259,7 @@ const PAGE = /* html */ `<!doctype html>
   .bar { display: inline-block; width: 130px; height: 7px; background: #3A3934; vertical-align: middle; margin-right: .7rem; }
   .bar i { display: block; height: 100%; background: #7E7C74; }
   tr.review .bar i { background: #EF9F27; }
-  .status { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; }
+  .status { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
   .status.open { color: #6E6C66; }
   .status.review { color: #EF9F27; }
   /* The flip is the moment the demo is built around, so it is announced. */
@@ -351,7 +351,7 @@ function render(s) {
 
   document.getElementById('foot').innerHTML =
     '<span class="dot' + (stale ? ' stale' : '') + '"></span>' +
-    s.updates + ' chain updates · last change ' + ago(since) +
+    s.updates + (s.updates === 1 ? ' chain update' : ' chain updates') + ' · last change ' + ago(since) +
     ' · checked ' + ago(heard) +
     (s.reconnects ? ' · ' + s.reconnects + ' reconnects' : '') +
     ' · nothing on this page identifies a reporter';
