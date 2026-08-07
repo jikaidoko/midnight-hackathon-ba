@@ -1,0 +1,83 @@
+# Local standalone Midnight network: node + indexer + proof server.
+#
+#   npm run mn:up      start in the background
+#   npm run mn:health  probe all three endpoints from the host (see note below)
+#   npm run mn:logs    follow logs
+#   npm run mn:down    stop and DELETE the volumes (state is not recoverable)
+#
+# Runs fully offline: no public testnet, no faucet. The node boots with the `dev`
+# preset, which pre-funds a genesis wallet (seed 0x00..01) holding the initial
+# supply. Network id is `undeployed`.
+#
+# Endpoints consumed by the TypeScript layer:
+#   node    http://127.0.0.1:9944
+#   indexer http://127.0.0.1:8088/api/v4/graphql  (websocket at .../ws)
+#   proof   http://127.0.0.1:6300
+#
+# All ports bind to 127.0.0.1 on purpose: the dev preset has no authentication,
+# so binding to 0.0.0.0 would expose a funded chain to the local network.
+
+services:
+  # NOTE - this service intentionally declares no `healthcheck`.
+  #
+  # The image is distroless: it ships no shell and no HTTP client, so every form
+  # a compose healthcheck can take (`CMD-SHELL`, or `CMD` with curl/wget) fails
+  # to execute inside the container. The practical consequence is that this
+  # service reports `Up`, never `healthy`, no matter how long it runs, and
+  # `docker compose ps` alone can never tell you whether it is answering.
+  #
+  # Health for this one is therefore checked from the HOST, by `npm run mn:health`,
+  # which probes GET /health on the published port. Waiting for three `healthy`
+  # services in `docker compose ps` will wait forever.
+  proof-server:
+    container_name: 'amparo-mn-proof-server'
+    image: 'midnightntwrk/proof-server:8.0.3'
+    command: ['midnight-proof-server -v']
+    ports:
+      - '127.0.0.1:6300:6300'
+    environment:
+      RUST_BACKTRACE: 'full'
+    # Public proving parameters (~33 MB) are downloaded on first use and are
+    # identical across runs. Caching them on a host volume turns a slow first
+    # proof into a one-time cost per machine instead of one per `mn:up`.
+    volumes:
+      - ./.zk-params:/.cache/midnight/zk-params
+    restart: unless-stopped
+
+  indexer:
+    container_name: 'amparo-mn-indexer'
+    image: 'midnightntwrk/indexer-standalone:4.0.1'
+    env_file: standalone.env
+    ports:
+      - '127.0.0.1:8088:8088'
+    environment:
+      RUST_LOG: 'indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,fastrace_opentelemetry=off,info'
+      APP__APPLICATION__NETWORK_ID: 'undeployed'
+    healthcheck:
+      # The indexer writes this file once it is actually serving; a TCP probe
+      # would go green earlier, while queries still fail.
+      test: ['CMD-SHELL', 'cat /var/run/indexer-standalone/running']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      # Starting the indexer before the node is accepting connections makes it
+      # exit instead of retrying.
+      node:
+        condition: service_healthy
+
+  node:
+    container_name: 'amparo-mn-node'
+    image: 'midnightntwrk/midnight-node:0.22.3'
+    ports:
+      - '127.0.0.1:9944:9944'
+    environment:
+      CFG_PRESET: 'dev'
+      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9944/health']
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
