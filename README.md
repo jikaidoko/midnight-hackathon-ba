@@ -64,15 +64,19 @@ cd contracts
 npm run mn:up          # start node, indexer and proof server
 npm run mn:health      # confirm all three answer
 npm run check-wallet   # confirm the wallet builds and syncs
-npm run deploy         # deploy case admission; generates the constructor proof
+npm run deploy         # deploy; generates the constructor proof. `-- 2` sets the
+                       # review threshold; it defaults to 3 and is sealed after
+                       # deployment, so this is the only place to choose it
 npm run admit-case     # admit one case end to end
 npm run mn:down        # stop, and DELETE the chain state
 ```
 
 ### The reporter path
 
-The filing registry is constructed with the admitted root, so it is deployed
-**after** the cases the demo will use are already admitted. See below for why.
+Admit and file in any order. A case admitted after the contract was deployed, or
+after other cases have already been filed against, is filable immediately:
+`registerFiling` checks the live registry. Ordering used to be load-bearing while
+these were two contracts - see below for what changed.
 
 ```bash
 npm run admit-case -- <64 hex>                     # once per demo case

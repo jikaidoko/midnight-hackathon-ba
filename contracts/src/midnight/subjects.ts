@@ -1,11 +1,11 @@
 // subjects.ts - the reporter-side credential store.
 //
-// `case_admission` has one authority, and its secret is written into the
-// deployment record. `filing_registry` has no such thing: every reporter holds
-// their own secret, all of their filings derive from it, and it is the only way
-// to rebuild the nullifiers a credential proof needs. Losing it does not lose
-// the filings - they stay on chain - but it permanently loses the ability to
-// prove they were yours, because nothing on chain links them to anyone.
+// The authority is one identity and its secret is written into the deployment
+// record. Reporters are not: every one holds their own secret, all of their
+// filings derive from it, and it is the only way to rebuild the nullifiers a
+// credential proof needs. Losing it does not lose the filings - they stay on
+// chain - but it permanently loses the ability to prove they were yours,
+// because nothing on chain links them to anyone.
 //
 // So this file is a stand-in for what a real deployment puts in a wallet. It is
 // gitignored, it holds live credentials, and it exists because the demo needs
@@ -26,17 +26,17 @@ export interface SubjectRecord {
   /** 32-byte hex. The reporter's private credential. */
   secret: string;
   /**
-   * Case commitments this reporter filed against, keyed by the filing registry
-   * the filing landed in, in order within each registry.
+   * Case commitments this reporter filed against, keyed by the contract the
+   * filing landed in, in order within each contract.
    *
    * Keyed, and not one flat list, because the nullifier tree lives INSIDE the
-   * contract. Redeploying `filing_registry` starts a fresh, empty tree, so a
-   * filing made against the previous deployment has no path in the new one and
-   * can never back a credential there. A flat list cannot tell the two apart,
-   * and `prove-credential` ends up blaming a transaction that never landed for
-   * a filing that landed perfectly well - in a registry that is no longer the
-   * current one. `file-report` offers a redeploy as the remedy for a diverged
-   * root, so this is a path the demo is actively steered onto.
+   * contract. Any new deployment starts a fresh, empty tree, so a filing made
+   * against a previous one has no path in the new one and can never back a
+   * credential there. A flat list cannot tell the two apart, and
+   * `prove-credential` ends up blaming a transaction that never landed for a
+   * filing that landed perfectly well - in a contract that is no longer the
+   * current one. Redeploying is routine during a demo, so this is a path the
+   * work is actively steered onto.
    */
   filings: Record<string, string[]>;
 }
@@ -68,7 +68,7 @@ function read(config: MidnightConfig): SubjectFile {
     if (Array.isArray(record?.filings)) {
       throw new Error(
         `${path} predates registry-scoped filings: subject "${label}" holds a flat filing list, ` +
-          'which cannot say which filing registry those filings landed in. Either delete the ' +
+          'which cannot say which contract those filings landed in. Either delete the ' +
           'file and file again, or rewrite the entry by hand as ' +
           '{"secret": "...", "filings": {"<registry address>": ["<case>", ...]}}.',
       );
@@ -135,7 +135,8 @@ export function subjectFilings(
 /**
  * Filings recorded against OTHER registries than `registry`.
  *
- * This exists for one failure: the filing registry was redeployed. The filings
+ * This exists for one failure: the filings were made against a previous
+ * deployment of the contract - a redeploy, or the contract being replaced. They
  * are still on chain and still the reporter's, but they are in a tree the
  * current contract does not have, so a credential cannot be built from them.
  * Reported rather than merged, because the honest answer is "file again", and a
@@ -184,9 +185,10 @@ export function subjectLabel(argv: string[] = process.argv.slice(2)): string {
 
 /**
  * Every flag that takes a value. A flag missing from here has its VALUE parsed
- * as a positional, which is silent and wrong: `deploy-filing` reads
- * `positionals()[0]` as the review threshold, so the first unlisted flag turns
- * it into `BigInt('<some string>')`. Add the flag here when you add it anywhere.
+ * as a positional, which is silent and wrong: `deploy` reads `positionals()[0]`
+ * as the review threshold and `admit-case` reads it as the case commitment, so
+ * the first unlisted flag turns those into `BigInt('<some string>')` and a hex
+ * parse of a flag value. Add the flag here when you add it anywhere.
  */
 const VALUED_FLAGS = new Set(['--subject', '--context']);
 
