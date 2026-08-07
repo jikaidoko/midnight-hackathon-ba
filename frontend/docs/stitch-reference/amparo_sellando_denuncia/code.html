@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sellando Reporte - AMPARO</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-primary-container": "#8e8acb",
+                "inverse-on-surface": "#f3eeff",
+                "on-error-container": "#93000a",
+                "secondary-fixed-dim": "#c9c3df",
+                "primary-fixed": "#e3dfff",
+                "surface-container-high": "#e9e5ff",
+                "surface-variant": "#e3dfff",
+                "on-tertiary": "#ffffff",
+                "secondary-container": "#e3dcf9",
+                "on-surface": "#1a1931",
+                "error-container": "#ffdad6",
+                "surface-container-highest": "#e3dfff",
+                "on-tertiary-container": "#9d8c99",
+                "surface-container-low": "#f6f2ff",
+                "inverse-surface": "#2f2e47",
+                "on-background": "#1a1931",
+                "surface-tint": "#5b5795",
+                "tertiary-fixed-dim": "#d4c1cf",
+                "on-primary-fixed": "#17114d",
+                "inverse-primary": "#c5c0ff",
+                "outline-variant": "#c8c5d1",
+                "tertiary-container": "#322630",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff",
+                "primary": "#110847",
+                "on-surface-variant": "#47464f",
+                "tertiary": "#1c121b",
+                "outline": "#787681",
+                "surface": "#fcf8ff",
+                "surface-container-lowest": "#ffffff",
+                "surface-dim": "#dad7f7",
+                "tertiary-fixed": "#f1ddeb",
+                "secondary-fixed": "#e6dffb",
+                "secondary": "#605b73",
+                "background": "#fcf8ff",
+                "on-secondary-container": "#646078",
+                "error": "#ba1a1a",
+                "on-secondary-fixed": "#1c192d",
+                "on-tertiary-fixed": "#231822",
+                "on-primary-fixed-variant": "#443f7b",
+                "on-tertiary-fixed-variant": "#50434e",
+                "primary-fixed-dim": "#c5c0ff",
+                "on-secondary-fixed-variant": "#48445b",
+                "on-primary": "#ffffff",
+                "surface-bright": "#fcf8ff",
+                "primary-container": "#26215c",
+                "surface-container": "#efebff"
+        },
+        "borderRadius": {
+                "DEFAULT": "1rem",
+                "lg": "2rem",
+                "xl": "3rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "gutter": "16px",
+                "container-padding-mobile": "24px",
+                "element-gap": "20px",
+                "container-padding-desktop": "64px",
+                "section-gap": "48px",
+                "unit": "8px"
+        },
+        "fontFamily": {
+                "body-sm": [
+                        "Inter"
+                ],
+                "body-md": [
+                        "Inter"
+                ],
+                "headline-sm": [
+                        "Manrope"
+                ],
+                "headline-md": [
+                        "Manrope"
+                ],
+                "headline-lg-mobile": [
+                        "Manrope"
+                ],
+                "label-md": [
+                        "Inter"
+                ],
+                "headline-lg": [
+                        "Manrope"
+                ],
+                "display-lg": [
+                        "Manrope"
+                ],
+                "body-lg": [
+                        "Inter"
+                ]
+        },
+        "fontSize": {
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-sm": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-md": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "28px",
+                        {
+                                "lineHeight": "36px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-md": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "display-lg": [
+                        "48px",
+                        {
+                                "lineHeight": "56px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "800"
+                        }
+                ],
+                "body-lg": [
+                        "18px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "400"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        .pulse-animation {
+            animation: pulse 3s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.7; }
+            50% { transform: scale(1.02); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.7; }
+        }
+        
+        .fade-in-up {
+            animation: fadeInUp 1s ease-out forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        .delay-100 { animation-delay: 100ms; }
+        .delay-300 { animation-delay: 300ms; }
+        .delay-500 { animation-delay: 500ms; }
+        .delay-700 { animation-delay: 700ms; }
+        
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .orb-gradient {
+            background: radial-gradient(circle at center, #c5c0ff 0%, #e3dfff 50%, transparent 100%);
+            filter: blur(20px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-background min-h-screen flex flex-col font-sans overflow-hidden">
+<!-- Top Navigation Placeholder (Hidden for Interstitial, but keeping structure if needed for 'back' in other flows, though requested 'Sin navegación inferior', I will also hide top nav for full immersion as it's an interstitial) -->
+<main class="flex-1 flex flex-col items-center justify-center p-container-padding-mobile relative z-10 w-full max-w-[1280px] mx-auto md:px-container-padding-desktop min-h-screen">
+<!-- Atmospheric Background -->
+<div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center opacity-60">
+<div class="w-[120%] h-[120%] max-w-4xl bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary-fixed-dim/30 via-surface/80 to-surface rounded-full blur-[100px]"></div>
+</div>
+<div class="relative z-10 flex flex-col items-center text-center w-full max-w-md">
+<!-- Large Voice Orb -->
+<div class="relative w-[220px] h-[220px] mb-12 flex items-center justify-center mx-auto">
+<!-- Inner morphing shape simulation (CSS) -->
+<div class="absolute inset-0 orb-gradient rounded-full pulse-animation opacity-80 mix-blend-screen shadow-[0_0_80px_rgba(197,192,255,0.7)]"></div>
+<div class="absolute inset-8 bg-primary rounded-full pulse-animation flex items-center justify-center shadow-[inset_0_-8px_16px_rgba(0,0,0,0.3)] border border-primary-fixed/20" style="animation-delay: -1.5s;">
+<span class="material-symbols-outlined text-white text-6xl" style="font-variation-settings: 'FILL' 1;">shield_lock</span>
+</div>
+</div>
+<!-- Text Content -->
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile md:font-display-lg md:text-display-lg text-primary mb-4 fade-in-up delay-100">
+                Protegiendo tu denuncia…
+            </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant mb-12 fade-in-up delay-300">
+                Estamos creando un registro verificable sin hacer público tu contenido.
+            </p>
+<!-- Lightweight Glass Card Horizontal List -->
+<div class="w-full max-w-sm flex justify-between items-center bg-white/40 backdrop-blur-xl p-6 rounded-[32px] shadow-[0_8px_32px_rgba(38,33,92,0.08)] border border-white/60 fade-in-up delay-500">
+<div class="flex flex-col items-center space-y-2 text-primary" id="step-1">
+<span class="material-symbols-outlined font-label-md" style="font-variation-settings: 'FILL' 1;">security</span>
+<span class="font-label-md text-label-md">Integridad</span>
+</div>
+<div class="w-px h-10 bg-outline-variant/40"></div>
+<div class="flex flex-col items-center space-y-2 text-primary opacity-50 pulse-animation" id="step-2">
+<span class="material-symbols-outlined font-label-md">lock</span>
+<span class="font-label-md text-label-md">Privacidad</span>
+</div>
+<div class="w-px h-10 bg-outline-variant/40"></div>
+<div class="flex flex-col items-center space-y-2 text-on-surface-variant opacity-30" id="step-3">
+<span class="material-symbols-outlined font-label-md">verified</span>
+<span class="font-label-md text-label-md">Registro</span>
+</div>
+</div>
+<!-- Optional Cancel / Back (Subtle, as it's an interstitial) -->
+<div class="mt-12 fade-in-up delay-700">
+<button class="font-label-md text-label-md text-outline hover:text-primary transition-colors">
+                    Cancelar proceso
+                </button>
+</div>
+</div>
+</main>
+<!-- Navigation Suppressed as requested -->
+<script>
+        // Simple script to simulate progress transition for demonstration
+        setTimeout(() => {
+            const step2 = document.getElementById('step-2');
+            const step3 = document.getElementById('step-3');
+            if(step2 && step3) {
+                // Change step 2 to done
+                step2.classList.remove('opacity-50', 'pulse-animation');
+                step2.querySelector('.material-symbols-outlined').style.fontVariationSettings = "'FILL' 1";
+                
+                // Set step 3 to active
+                step3.classList.remove('text-on-surface-variant', 'opacity-30');
+                step3.classList.add('text-primary', 'opacity-50', 'pulse-animation');
+            }
+        }, 3000);
+    </script>
+</body></html>

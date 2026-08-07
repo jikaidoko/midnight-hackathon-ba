@@ -34,7 +34,7 @@
 // and no divergence to report.
 
 import { map, type Observable } from 'rxjs';
-import { ledger, filingNullifier, type AmparoLedger } from './compiled-contract.js';
+import { ledger, filingNullifier, type AmparoLedger } from './ledger.js';
 
 /** One admitted case, as this particular reporter sees it. */
 export interface CaseView {
@@ -63,8 +63,15 @@ export interface ReporterView {
 /** Filings a credential needs. Matches the arity of `proveRepeatFilings`. */
 export const CREDENTIAL_FILINGS = 3;
 
+// Written by hand rather than with `Buffer`, which does not exist in a browser.
+// This module is the one piece of the harness a UI imports directly, so a Node
+// global here is not a style question: it is the difference between the view
+// running where it was designed to run and failing at load. Nothing else in
+// this file touches a Node API, and nothing else should.
 function toHex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('hex');
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex;
 }
 
 /**

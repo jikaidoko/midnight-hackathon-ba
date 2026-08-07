@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Mis Reportes - AMPARO</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "tertiary": "#1a1509",
+                      "on-tertiary-fixed": "#201b0f",
+                      "tertiary-fixed-dim": "#d0c5b2",
+                      "surface-container-highest": "#e5e1e7",
+                      "secondary-fixed-dim": "#ffb95d",
+                      "on-primary-fixed-variant": "#443f7b",
+                      "surface-container-lowest": "#ffffff",
+                      "primary-container": "#26215c",
+                      "on-secondary-container": "#6b4200",
+                      "on-surface-variant": "#47464f",
+                      "on-error": "#ffffff",
+                      "on-secondary": "#ffffff",
+                      "primary-fixed-dim": "#c5c0ff",
+                      "tertiary-fixed": "#ede1cd",
+                      "on-tertiary-fixed-variant": "#4d4638",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed": "#2a1700",
+                      "surface-tint": "#5b5795",
+                      "secondary-container": "#fcaa33",
+                      "on-primary-fixed": "#17114d",
+                      "on-surface": "#1c1b1f",
+                      "inverse-primary": "#c5c0ff",
+                      "surface-container-low": "#f6f2f8",
+                      "secondary": "#855400",
+                      "surface-dim": "#dcd9df",
+                      "surface": "#fcf8fe",
+                      "tertiary-container": "#2f291c",
+                      "on-error-container": "#93000a",
+                      "inverse-surface": "#313034",
+                      "on-primary": "#ffffff",
+                      "error": "#ba1a1a",
+                      "on-background": "#1c1b1f",
+                      "inverse-on-surface": "#f3eff5",
+                      "outline-variant": "#c8c5d1",
+                      "on-secondary-fixed-variant": "#653e00",
+                      "on-primary-container": "#8e8acb",
+                      "primary-fixed": "#e3dfff",
+                      "outline": "#787681",
+                      "surface-container": "#f1ecf2",
+                      "background": "#fcf8fe",
+                      "surface-bright": "#fcf8fe",
+                      "on-tertiary": "#ffffff",
+                      "surface-variant": "#e5e1e7",
+                      "primary": "#110847",
+                      "on-tertiary-container": "#99907e",
+                      "surface-container-high": "#ebe7ed",
+                      "secondary-fixed": "#ffddb7"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "unit": "8px",
+                      "sm": "8px",
+                      "md": "16px",
+                      "xxl": "48px",
+                      "gutter": "24px",
+                      "lg": "24px",
+                      "xs": "4px",
+                      "margin-desktop": "40px",
+                      "xl": "32px",
+                      "margin-mobile": "16px"
+              },
+              "fontFamily": {
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "display-lg-mobile": [
+                              "Manrope"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Manrope"
+                      ],
+                      "headline-md": [
+                              "Manrope"
+                      ],
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Manrope"
+                      ]
+              },
+              "fontSize": {
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg-mobile": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.filled {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .ambient-glow {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(197,192,255,0.25) 0%, rgba(252,248,254,0) 70%);
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(40px);
+        }
+      </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-purple-50 via-background to-orange-50 text-on-surface min-h-screen relative overflow-x-hidden font-body-md flex flex-col md:items-center">
+<!-- Ambient Background Effects -->
+<div class="ambient-glow -top-20 -left-20" style="background: radial-gradient(circle, rgba(246, 213, 247, 0.4) 0%, rgba(252,248,254,0) 70%);"></div>
+<div class="ambient-glow top-1/4 -right-32 w-[500px] h-[500px]" style="background: radial-gradient(circle, rgba(255, 223, 186, 0.3) 0%, rgba(252,248,254,0) 70%);"></div>
+<div class="ambient-glow bottom-0 -left-20 w-[400px] h-[400px]" style="background: radial-gradient(circle, rgba(197,192,255,0.25) 0%, rgba(252,248,254,0) 70%);"></div>
+<!-- Main Container (Fluid-Fixed Hybrid) -->
+<div class="w-full max-w-[1280px] min-h-screen flex flex-col relative z-10 pb-[100px] md:pb-0">
+<!-- TopAppBar (Web & Mobile) -->
+<header class="bg-transparent flex items-center justify-between px-margin-mobile w-full h-14 md:px-margin-desktop sticky top-0 z-40 transition-shadow duration-300 backdrop-blur-sm" id="top-app-bar">
+<!-- Leading Icon -->
+<button aria-label="Go back" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant/50 transition-colors text-primary">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<!-- Headline -->
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold tracking-tight text-primary">AMPARO</h1>
+<!-- Trailing Action -->
+<div class="flex items-center gap-xs px-3 py-1.5 rounded-full bg-white/60 backdrop-blur-sm text-on-surface-variant shadow-sm border border-white/50">
+<span class="material-symbols-outlined text-[16px] filled" style="color: #fcaa33;">verified</span>
+<span class="font-label-sm text-label-sm font-semibold">Verificado</span>
+</div>
+</header>
+<!-- Content Canvas -->
+<main class="flex-1 px-margin-mobile md:px-margin-desktop pt-16 pb-32 flex flex-col gap-12">
+<!-- Hero Section -->
+<section class="flex flex-col gap-6 md:flex-row md:items-end md:justify-between pt-8 pb-4">
+<div>
+<h2 class="font-display-lg-mobile text-[40px] leading-[48px] md:font-display-lg md:text-display-lg text-primary tracking-tight">Hola, Sofía.</h2>
+<div class="flex items-center gap-md mt-6">
+<p class="font-body-lg text-body-lg text-on-surface-variant">Tus reportes</p>
+<span class="inline-flex items-center justify-center px-4 py-1.5 rounded-full bg-white/60 backdrop-blur-sm border border-white/50 shadow-sm text-primary font-label-md text-label-md">
+                            3 sellados
+                        </span>
+</div>
+</div>
+<button class="mt-8 md:mt-0 flex items-center justify-center h-[60px] md:h-[64px] px-8 rounded-2xl bg-gradient-to-r from-orange-200 via-rose-200 to-purple-200 text-primary font-label-md text-[16px] tracking-wide font-bold hover:opacity-90 transition-opacity active:scale-95 duration-150 shadow-lg border border-white/50">
+<span class="material-symbols-outlined mr-3">add</span>
+                    Nueva denuncia
+                </button>
+</section>
+<!-- Report Cards List (Bento-ish Grid on Web) -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
+<!-- ReportCard 1 (Sellado) - Lavender -->
+<div class="bg-purple-50/80 backdrop-blur-sm rounded-[24px] p-lg shadow-[0_8px_30px_rgba(38,33,92,0.04)] hover:shadow-[0_12px_40px_rgba(38,33,92,0.08)] transition-all duration-300 flex flex-col justify-between min-h-[180px] border border-white/60 cursor-pointer group hover:-translate-y-1">
+<div class="flex justify-between items-start gap-md">
+<p class="font-body-md text-body-md text-primary font-medium line-clamp-2 leading-relaxed">Denuncia por situación ocurrida...</p>
+<div class="shrink-0 bg-primary text-on-primary rounded-full px-3 py-1 flex items-center gap-1 font-label-sm text-label-sm shadow-sm">
+<span class="material-symbols-outlined text-[14px]">lock</span>
+                            Sellado
+                        </div>
+</div>
+<div class="flex items-center justify-between mt-md pt-md border-t border-purple-200/50 group-hover:border-primary-fixed-dim transition-colors">
+<span class="font-label-sm text-label-sm text-primary/70">Hace 3 días</span>
+<span class="material-symbols-outlined text-primary/70 group-hover:text-primary transition-colors">chevron_right</span>
+</div>
+</div>
+<!-- ReportCard 2 (Compartido) - Cream -->
+<div class="bg-orange-50/80 backdrop-blur-sm rounded-[24px] p-lg shadow-[0_8px_30px_rgba(38,33,92,0.04)] hover:shadow-[0_12px_40px_rgba(38,33,92,0.08)] transition-all duration-300 flex flex-col justify-between min-h-[180px] border border-white/60 cursor-pointer group hover:-translate-y-1">
+<div class="flex justify-between items-start gap-md">
+<p class="font-body-md text-body-md text-primary font-medium line-clamp-2 leading-relaxed">Reporte 2</p>
+<div class="shrink-0 bg-orange-200 text-orange-900 rounded-full px-3 py-1 flex items-center gap-1 font-label-sm text-label-sm shadow-sm">
+<span class="material-symbols-outlined text-[14px]">share</span>
+                            Compartido
+                        </div>
+</div>
+<div class="flex items-center justify-between mt-md pt-md border-t border-orange-200/50 group-hover:border-orange-300 transition-colors">
+<span class="font-label-sm text-label-sm text-primary/70">Hace 1 semana</span>
+<span class="material-symbols-outlined text-primary/70 group-hover:text-primary transition-colors">chevron_right</span>
+</div>
+</div>
+<!-- ReportCard 3 (Borrador) - Ice -->
+<div class="bg-cyan-50/80 backdrop-blur-sm rounded-[24px] p-lg shadow-[0_8px_30px_rgba(38,33,92,0.04)] hover:shadow-[0_12px_40px_rgba(38,33,92,0.08)] transition-all duration-300 flex flex-col justify-between min-h-[180px] border border-white/60 cursor-pointer group hover:-translate-y-1">
+<div class="flex justify-between items-start gap-md">
+<p class="font-body-md text-body-md text-primary/80 italic font-medium line-clamp-2 leading-relaxed">Reporte 3</p>
+<div class="shrink-0 bg-cyan-100 text-cyan-900 rounded-full px-3 py-1 flex items-center gap-1 font-label-sm text-label-sm shadow-sm">
+<span class="material-symbols-outlined text-[14px]">draft</span>
+                            Borrador
+                        </div>
+</div>
+<div class="flex items-center justify-between mt-md pt-md border-t border-cyan-200/50 group-hover:border-cyan-300 transition-colors">
+<span class="font-label-sm text-label-sm text-primary/70">Ayer</span>
+<span class="material-symbols-outlined text-primary/70 group-hover:text-primary transition-colors">edit</span>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar (Mobile Only) - Floating Glass -->
+<nav class="md:hidden fixed bottom-6 left-6 right-6 z-50 flex justify-around items-center px-4 py-3 bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_rgba(38,33,92,0.1)] rounded-full">
+<!-- Item 1: Inicio -->
+<button class="flex flex-col items-center justify-center text-on-surface-variant w-16 hover:bg-surface-container-highest/30 transition-colors rounded-xl py-1">
+<span class="material-symbols-outlined text-[24px] mb-1">home</span>
+<span class="font-label-sm text-label-sm">Inicio</span>
+</button>
+<!-- Item 2: Reportes (Active) -->
+<button class="flex flex-col items-center justify-center bg-primary text-on-primary rounded-full px-5 py-2 active:scale-90 duration-200 shadow-md">
+<span class="material-symbols-outlined text-[24px] mb-0.5 filled" style="font-variation-settings: 'FILL' 1;">description</span>
+<span class="font-label-sm text-label-sm font-semibold">Reportes</span>
+</button>
+<!-- Item 3: Ayuda -->
+<button class="flex flex-col items-center justify-center text-on-surface-variant w-16 hover:bg-surface-container-highest/30 transition-colors rounded-xl py-1">
+<span class="material-symbols-outlined text-[24px] mb-1">help</span>
+<span class="font-label-sm text-label-sm">Ayuda</span>
+</button>
+<!-- Item 4: Perfil -->
+<button class="flex flex-col items-center justify-center text-on-surface-variant w-16 hover:bg-surface-container-highest/30 transition-colors rounded-xl py-1">
+<span class="material-symbols-outlined text-[24px] mb-1">person</span>
+<span class="font-label-sm text-label-sm">Perfil</span>
+</button>
+</nav>
+<!-- Desktop SideNav (Hidden on Mobile, placeholder structure for context based on constraints to hide BottomNav on web) -->
+<nav class="hidden md:flex absolute left-0 top-0 h-full w-[80px] flex-col items-center py-xl bg-surface-container-lowest shadow-[8px_0_30px_rgba(38,33,92,0.02)] z-30 transform -translate-x-full">
+<!-- Content structurally omitted as focus is main canvas and BottomNav is specified for mobile flow. TopApp bar holds web nav generically. -->
+</nav>
+</div>
+<script>
+        // Simple scroll effect for TopAppBar shadow
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('top-app-bar');
+            if (window.scrollY > 10) {
+                header.classList.add('shadow-[0_8px_30px_rgba(38,33,92,0.06)]');
+                header.classList.add('bg-white/80');
+                header.classList.remove('bg-transparent');
+            } else {
+                header.classList.remove('shadow-[0_8px_30px_rgba(38,33,92,0.06)]');
+                header.classList.remove('bg-white/80');
+                header.classList.add('bg-transparent');
+            }
+        });
+    </script>
+</body></html>

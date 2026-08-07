@@ -109,7 +109,3 @@ export const witnesses: Witnesses<AmparoPrivateState> = {
   authoritySecret: (c: Ctx) => [c.privateState, needAuthority(c.privateState)],
   subjectSecret: (c: Ctx) => [c.privateState, needReporter(c.privateState)],
 };
-
-export function bytesToHex(b: Uint8Array): string {
-  return Buffer.from(b).toString('hex');
-}

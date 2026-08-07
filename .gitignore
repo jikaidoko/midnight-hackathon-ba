@@ -4,6 +4,9 @@ dist/
 .env.*
 !.env.example
 
+# tsc incremental build cache
+*.tsbuildinfo
+
 # Compact compiler output (regenerate with `npm run compile`).
 contracts/src/managed/
 
@@ -44,3 +47,8 @@ contracts/subjects.*.json
 # survives a process killed mid-write - so it needs its own entry: the pattern
 # above ends in `.json` and does not match it.
 contracts/subjects.*.json.tmp
+
+# Published ZK assets. Compiler output, ~15 MB, copied out of
+# contracts/src/managed by `npm run copy-zk` at build time. The interface needs
+# them served from its own origin; the repository does not need a second copy.
+frontend/public/zk/
