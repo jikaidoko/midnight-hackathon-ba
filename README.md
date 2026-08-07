@@ -11,6 +11,7 @@ times** - without saying how many, which ones, or who.
 
 | Path | What it is |
 |---|---|
+| `frontend-verifier/` | React + Vite + TS portal for the verifying authority (requests inbox, new verification, ZK result, authorized info), mock services behind a Midnight-ready boundary |
 | `contracts/` | Compact circuits and their TypeScript layer |
 | `contracts/src/amparo.compact` | The contract: case admission, filings, threshold credential, public case alarm |
 | `contracts/src/amparo-witnesses.ts` | Private inputs the circuits read |
