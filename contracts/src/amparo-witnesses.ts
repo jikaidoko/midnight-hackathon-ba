@@ -36,29 +36,35 @@ import type { Witnesses, Ledger } from './managed/amparo/contract/index.js';
 import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
 
 /**
- * Private state of whoever is calling. Holds at most one of the two secrets in
- * practice: the authority admits, the reporter files, and nobody does both.
+ * Private state of whoever is calling: an authority OR a reporter, never both.
+ *
+ * A UNION, not a record of two optional fields. Before the contracts merged,
+ * the two roles had separate types in separate files and "a private state
+ * holding both secrets" was irrepresentable. Merging them into one optional
+ * record quietly gave that back, and a type that permits the thing it exists to
+ * prevent has stopped being the guard. The union restores it: the compiler
+ * rejects a state carrying both, and the runtime check below becomes a
+ * narrowing rather than a presence test.
  *
  * There is deliberately NO private filing counter. A count the reporter stores
  * is a count the reporter can edit, so the credential reads the public tree
  * instead — see `proveRepeatFilings`.
  */
-export interface AmparoPrivateState {
-  /** Preimage of the published `authorityCommitment`. Whoever holds it, admits. */
-  readonly authoritySecret?: Uint8Array; // 32B
-  /** The reporter's credential. Every nullifier they spend derives from it. */
-  readonly subjectSecret?: Uint8Array; // 32B
-}
+export type AmparoPrivateState =
+  | {
+      readonly role: 'authority';
+      /** Preimage of the published `authorityCommitment`. Whoever holds it, admits. */
+      readonly authoritySecret: Uint8Array; // 32B
+    }
+  | {
+      readonly role: 'reporter';
+      /** The reporter's credential. Every nullifier they spend derives from it. */
+      readonly subjectSecret: Uint8Array; // 32B
+    };
 
 type Ctx = WitnessContext<Ledger, AmparoPrivateState>;
 
-function require32(value: Uint8Array | undefined, role: string, field: string): Uint8Array {
-  if (value === undefined) {
-    throw new Error(
-      `This circuit needs the ${role}'s secret, and the private state has no \`${field}\`. ` +
-        `Only the ${role} can call it.`,
-    );
-  }
+function require32(value: Uint8Array, field: string): Uint8Array {
   if (value.length !== 32) {
     throw new Error(`${field} must be 32 bytes (got ${value.length})`);
   }
@@ -66,11 +72,31 @@ function require32(value: Uint8Array | undefined, role: string, field: string): 
 }
 
 export function createAuthorityState(authoritySecret: Uint8Array): AmparoPrivateState {
-  return { authoritySecret: require32(authoritySecret, 'authority', 'authoritySecret') };
+  return { role: 'authority', authoritySecret: require32(authoritySecret, 'authoritySecret') };
 }
 
 export function createSubjectState(subjectSecret: Uint8Array): AmparoPrivateState {
-  return { subjectSecret: require32(subjectSecret, 'reporter', 'subjectSecret') };
+  return { role: 'reporter', subjectSecret: require32(subjectSecret, 'subjectSecret') };
+}
+
+function needAuthority(ps: AmparoPrivateState): Uint8Array {
+  if (ps.role !== 'authority') {
+    throw new Error(
+      "This circuit needs the authority's secret, and this private state belongs to a " +
+        'reporter. Only the authority can admit cases.',
+    );
+  }
+  return ps.authoritySecret;
+}
+
+function needReporter(ps: AmparoPrivateState): Uint8Array {
+  if (ps.role !== 'reporter') {
+    throw new Error(
+      "This circuit needs the reporter's secret, and this private state belongs to the " +
+        'authority. Only a reporter can file or present a credential.',
+    );
+  }
+  return ps.subjectSecret;
 }
 
 /**
@@ -80,14 +106,8 @@ export function createSubjectState(subjectSecret: Uint8Array): AmparoPrivateStat
  * filing does not change the reporter's.
  */
 export const witnesses: Witnesses<AmparoPrivateState> = {
-  authoritySecret: (c: Ctx) => [
-    c.privateState,
-    require32(c.privateState.authoritySecret, 'authority', 'authoritySecret'),
-  ],
-  subjectSecret: (c: Ctx) => [
-    c.privateState,
-    require32(c.privateState.subjectSecret, 'reporter', 'subjectSecret'),
-  ],
+  authoritySecret: (c: Ctx) => [c.privateState, needAuthority(c.privateState)],
+  subjectSecret: (c: Ctx) => [c.privateState, needReporter(c.privateState)],
 };
 
 export function bytesToHex(b: Uint8Array): string {

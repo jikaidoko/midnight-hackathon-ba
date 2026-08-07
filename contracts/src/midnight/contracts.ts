@@ -22,9 +22,24 @@ export interface ContractSpec<Id extends string = string> {
    * evaluated locally and have none, so listing one here fails the key load.
    */
   readonly circuitIds: readonly Id[];
-  /** Namespace the private state is stored under. */
+  /**
+   * Namespace the private state is stored under.
+   *
+   * There are two, and they are NOT interchangeable: the authority has one, and
+   * every reporter has their own. This field carries whichever the caller is
+   * acting as, which is why `AMPARO` below does not default it to a usable
+   * value - a reporter call site that forgets `forSubject` would otherwise land
+   * in the authority's namespace, and the failure would depend on the private
+   * state's shape rather than on the mistake.
+   */
   readonly privateStateId: string;
 }
+
+/** The authority's namespace. One identity, one namespace. */
+export const AUTHORITY_PRIVATE_STATE_ID = 'amparo-authority';
+
+/** Reporter namespaces are `${this}:${label}` - see `forSubject`. */
+export const SUBJECT_PRIVATE_STATE_PREFIX = 'amparo-subject';
 
 export type AmparoCircuitId = 'admitCase' | 'registerFiling' | 'proveRepeatFilings';
 /** Kept as a distinct name because the provider set is typed on it. */
@@ -38,7 +53,7 @@ export type AnyCircuitId = AmparoCircuitId;
 export const AMPARO: ContractSpec<AmparoCircuitId> = {
   name: 'amparo',
   circuitIds: ['admitCase', 'registerFiling', 'proveRepeatFilings'],
-  privateStateId: 'amparo-authority',
+  privateStateId: AUTHORITY_PRIVATE_STATE_ID,
 };
 
 /** Where the compiler wrote this contract: `keys/`, `zkir/`, `contract/`. */
@@ -60,5 +75,6 @@ export function forSubject<Id extends string>(
   spec: ContractSpec<Id>,
   label: string,
 ): ContractSpec<Id> {
-  return { ...spec, privateStateId: `amparo-subject:${label}` };
+  if (label.trim() === '') throw new Error('a reporter label cannot be empty');
+  return { ...spec, privateStateId: `${SUBJECT_PRIVATE_STATE_PREFIX}:${label}` };
 }

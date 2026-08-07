@@ -440,6 +440,14 @@ test('18. KNOWN LIMITATION: output B counts secrets, not people', () => {
 test('19. the private state carries one role, and the other is named', () => {
   const e = setup();
 
+  // The state is a union, so a state carrying BOTH secrets does not typecheck.
+  // Before the contracts merged that was guaranteed by them being two types in
+  // two files; merging them into one optional record gave it away silently.
+  // Asserted at runtime too, because the union is only as good as the
+  // constructors: neither builder can produce the other role's field.
+  assert.equal('subjectSecret' in createAuthorityState(AUTHORITY), false);
+  assert.equal('authoritySecret' in createSubjectState(SOFIA), false);
+
   // A reporter cannot admit: their private state has no authority secret, and
   // the failure says which role is missing rather than producing a proof of a
   // false statement.

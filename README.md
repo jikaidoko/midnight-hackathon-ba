@@ -108,11 +108,18 @@ They are one contract now. `registerFiling` checks the live registry, so a case
 admitted one block ago is filable immediately. Nothing is frozen, so nothing
 goes stale.
 
-The merge also removed the Merkle path `registerFiling` used to take. The case
-is necessarily disclosed - it is the key of the public counter - so a Set lookup
-on an already-public value proves membership exactly, without 40 witness
-variables, a client-side tree fetch, and a `disclose` of the path's root that
-leaked which root the reporter had synced to.
+The merge also removed the Merkle path `registerFiling` used to take. The case is
+necessarily disclosed - it is the key of the public counter - so a Set lookup on
+an already-public value proves membership exactly, and does it against the live
+registry instead of a frozen root.
+
+**This saves proving cost, not privacy.** The split contract used
+`assert(merkleTreePathRoot(path) == admittedRoot)`: a pure comparison, no ledger
+operation, no `disclose`. The path never reached `declare_pub_input`, so removing
+it cannot reduce a leak - privacy is byte-identical, because the only thing
+protecting the reporter is `subjectSecret` disappearing into an opaque hash and
+that never changed. What it buys is 40 fewer witness variables and no
+client-side tree fetch before filing.
 
 Configuration is entirely environmental, with defaults pointing at the local
 network - copy `contracts/.env.example` to `contracts/.env` only when you need to

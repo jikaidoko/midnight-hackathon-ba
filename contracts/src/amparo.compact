@@ -36,10 +36,24 @@ import CompactStandardLibrary;
 // case — it is the key of the public counter — so a Set lookup on an
 // already-public value proves membership exactly and leaks nothing new. The
 // separate contract could not do this: it had no registry to look in, only a
-// root, so it needed a path. A path would now cost 40 witness variables, a
-// client-side tree fetch, and a `disclose` of the path's root, which is the one
-// thing here that would leak something real — which root the reporter synced
-// against, and so roughly when.
+// root, so it needed a path.
+//
+// What this saves is COST, not privacy. Be precise about that, because the
+// tempting claim is wrong: the split contract compared with
+// `assert(merkleTreePathRoot(path) == admittedRoot)`, a pure comparison with no
+// ledger operation and no `disclose`, so the path never reached
+// `declare_pub_input` — measured on that contract, 2 of its 44 input variables
+// did, both of them the disclosed case. Removing an input that never left the
+// witness cannot reduce a leak. Privacy is byte-identical either way, because
+// the only thing protecting the reporter is `subjectSecret` disappearing into
+// an opaque hash, and that is unchanged.
+//
+// The `disclose` that WOULD have leaked belongs to the other integration one
+// could have written — `admittedCases.checkRoot(merkleTreePathRoot(path))` — a
+// ledger operation on a witness-derived value, which the compiler requires be
+// disclosed. That approach was not taken. What the Set actually buys is 40
+// fewer witness variables in the proof and no client-side tree fetch before
+// filing.
 export ledger admittedIndex: Set<Bytes<32>>;
 
 // The same admissions as a tree, kept as the public auditable record of what was
