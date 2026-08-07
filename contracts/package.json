@@ -12,7 +12,7 @@
     "compile:fast": "npm run compile:cases:fast && npm run compile:filing:fast",
     "compile:filing": "compact compile src/filing_registry.compact src/managed/filing_registry",
     "compile:filing:fast": "compact compile --skip-zk src/filing_registry.compact src/managed/filing_registry",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test \"src/**/*.test.ts\" \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
