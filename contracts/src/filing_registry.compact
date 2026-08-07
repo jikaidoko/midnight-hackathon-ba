@@ -49,6 +49,11 @@ export ledger spentFilingNullifiers: Set<Bytes<32>>;
 // being replayed against the same verifier.
 export ledger spentPresentationNullifiers: Set<Bytes<32>>;
 
+// Output B: how many distinct subjects have filed against each case. Public on
+// purpose — the subject of this count is an admitted site or incident, not a
+// person. Privacy points at the reporter; transparency points at the institution.
+export ledger caseReports: Map<Bytes<32>, Counter>;
+
 // ── Private inputs ───────────────────────────────────────────────────────────
 
 // The subject's only secret. Runs on their machine, never reaches the chain.
@@ -110,6 +115,15 @@ export circuit registerFiling(
   assert(!spentFilingNullifiers.member(nullifier), "Subject already filed for this case");
   spentFilingNullifiers.insert(nullifier);
 
+  // Output B. `Map<K, Counter>` does not auto-initialise: looking up a missing
+  // key fails, so the entry has to be created before the first increment.
+  const caseKey = disclose(caseCommitment);
+  if (!caseReports.member(caseKey)) {
+    caseReports.insert(caseKey, default<Counter>);
+  }
+  caseReports.lookup(caseKey).increment(1);
+
+  // Output A. Last, so the private count never runs ahead of what is on-chain.
   bumpFilingCount();
 }
 

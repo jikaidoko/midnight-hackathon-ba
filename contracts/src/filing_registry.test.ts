@@ -227,6 +227,37 @@ test('8. presentation nullifier: a proof cannot be replayed in the same context'
   );
 });
 
+test('10. output B: the public per-case counter tracks distinct subjects', () => {
+  const c = setup();
+
+  // A case nobody has reported has no entry at all — the map does not
+  // auto-initialise, which is why registerFiling creates the key first.
+  assert.equal(ledger(c.state).caseReports.member(CASE_A), false, 'no entry before the first filing');
+
+  const mine = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
+  assert.equal(ledger(mine.state).caseReports.lookup(CASE_A).read(), 1n, 'first report counted');
+
+  const otherPriv = createSubjectPrivateState(OTHER_SECRET);
+  const theirs = file(c, mine.state, otherPriv, CASE_A, c.registry.pathFor(CASE_A));
+  assert.equal(
+    ledger(theirs.state).caseReports.lookup(CASE_A).read(),
+    2n,
+    'independent corroboration raises the public count',
+  );
+});
+
+test('11. the public counter is per case: filings do not leak across cases', () => {
+  const c = setup();
+
+  const first = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
+  const second = file(c, first.state, first.priv, CASE_B, c.registry.pathFor(CASE_B));
+  const l = ledger(second.state);
+
+  assert.equal(l.caseReports.lookup(CASE_A).read(), 1n, 'case A untouched by the case B filing');
+  assert.equal(l.caseReports.lookup(CASE_B).read(), 1n, 'case B counted on its own key');
+  assert.equal(l.caseReports.size(), 2n, 'one entry per reported case');
+});
+
 test('9. the subject secret never appears in public state', () => {
   const c = setup();
   const r = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
