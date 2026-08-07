@@ -4,6 +4,9 @@ dist/
 .env.*
 !.env.example
 
+# tsc incremental build cache
+*.tsbuildinfo
+
 # Compact compiler output (regenerate with `npm run compile`).
 contracts/src/managed/
 
