@@ -28,9 +28,10 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { retry, tap } from 'rxjs';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import { loadConfig, describe, PKG_ROOT } from '../src/midnight/config.js';
+import { loadConfig, PKG_ROOT } from '../src/midnight/config.js';
 import { publicView$, type PublicLedgerView } from '../src/midnight/derived-state.js';
 
 const config = loadConfig();
@@ -80,25 +81,36 @@ interface Snapshot {
 
 const snapshot: Snapshot = { view: null, error: null, updatedAt: null, updates: 0 };
 
+// An rxjs subscription is TERMINAL on error, so an `error` handler that only
+// records the failure leaves the stream dead: the page would serve the last
+// snapshot forever, moving nothing. `tap` records it so the page can say so,
+// `retry` reconnects. On a projector a view that stops silently is worse than
+// one that admits it is broken.
 const subscription = publicView$({ publicDataProvider } as never, {
   contractAddress: deployment.contractAddress,
   reviewThreshold,
-}).subscribe({
-  next: (view) => {
-    snapshot.view = view;
-    snapshot.error = null;
-    snapshot.updatedAt = new Date().toISOString();
-    snapshot.updates += 1;
-    console.log(
-      `[${new Date().toLocaleTimeString()}] ${view.admittedCount} admitted · ` +
-        `${view.totalReports} reports · ${view.underReviewCount} under review`,
-    );
-  },
-  error: (err: unknown) => {
-    snapshot.error = err instanceof Error ? err.message : String(err);
-    console.error('Subscription failed:', snapshot.error);
-  },
-});
+})
+  .pipe(
+    tap({
+      error: (err: unknown) => {
+        snapshot.error = err instanceof Error ? err.message : String(err);
+        console.error('Subscription failed, retrying in 2s:', snapshot.error);
+      },
+    }),
+    retry({ delay: 2000 }),
+  )
+  .subscribe({
+    next: (view) => {
+      snapshot.view = view;
+      snapshot.error = null;
+      snapshot.updatedAt = new Date().toISOString();
+      snapshot.updates += 1;
+      console.log(
+        `[${new Date().toLocaleTimeString()}] ${view.admittedCount} admitted · ` +
+          `${view.totalReports} reports · ${view.underReviewCount} under review`,
+      );
+    },
+  });
 
 // ---------------------------------------------------------------------------
 // Serving
@@ -167,15 +179,22 @@ let first = true;
 
 function render(s) {
   const sub = document.getElementById('sub');
+  // One branch, not two writes: the error line used to be overwritten by the
+  // network line four statements later, so a dead subscription looked identical
+  // to a healthy one. textContent rather than innerHTML because this string is
+  // the indexer's, not ours - the only value on the page we do not author.
   if (s.error) {
-    sub.innerHTML = '<span class="err">subscription error: ' + s.error + '</span>';
+    sub.textContent = 'subscription error: ' + s.error;
+    sub.classList.add('err');
+  } else if (s.meta) {
+    sub.textContent = s.meta.network + ' · contract ' + s.meta.contractAddress;
+    sub.classList.remove('err');
   }
   if (!s.view) {
     document.getElementById('foot').textContent = 'Waiting for the first state from the chain...';
     return;
   }
   const v = s.view;
-  sub.textContent = s.meta.network + ' · contract ' + s.meta.contractAddress;
 
   document.getElementById('totals').innerHTML = [
     ['Cases admitted', v.admittedCount, false],
@@ -248,8 +267,16 @@ const server = createServer((req, res) => {
   res.end(PAGE);
 });
 
-server.listen(port, () => {
-  console.log(describe(config));
+// Bound to loopback explicitly. Without the host argument Node listens on every
+// interface, so a view whose banner promises 127.0.0.1 was in fact reachable
+// from the whole venue wifi - and this is the one process here meant to be left
+// running unattended.
+server.listen(port, '127.0.0.1', () => {
+  // Only the two services this view actually uses. `describe(config)` also
+  // lists the node and the proof server, three lines above a banner that says
+  // it uses neither.
+  console.log(`network:  ${config.networkId}`);
+  console.log(`indexer:  ${config.indexerUrl}`);
   console.log(`\nContract: ${deployment.contractAddress}`);
   console.log(`Threshold: ${reviewThreshold} independent reports`);
   console.log(`\nPublic ledger view: http://127.0.0.1:${port}`);
