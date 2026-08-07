@@ -21,7 +21,10 @@
     "proof-server": "docker compose -f docker-compose.midnight.yml up -d proof-server",
     "check-wallet": "tsx scripts/check-wallet.ts",
     "deploy": "tsx scripts/deploy.ts",
-    "admit-case": "tsx scripts/admit-case.ts"
+    "admit-case": "tsx scripts/admit-case.ts",
+    "deploy-filing": "tsx scripts/deploy-filing.ts",
+    "file-report": "tsx scripts/file-report.ts",
+    "prove-credential": "tsx scripts/prove-credential.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.16.0",
