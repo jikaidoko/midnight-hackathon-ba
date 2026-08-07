@@ -14,7 +14,13 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "types": ["vite/client"],
+    "paths": {
+      "@amparo/contracts/*": ["../contracts/src/midnight/*"],
+      "@amparo/generated/*": ["../contracts/src/*"]
+    }
   },
   "include": ["src"]
 }
