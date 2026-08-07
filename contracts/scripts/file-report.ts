@@ -49,10 +49,10 @@ if (!existsSync(filingFile)) {
 const deployment = JSON.parse(readFileSync(filingFile, 'utf8')) as {
   contractAddress: string;
   caseAdmissionAddress: string;
-  admittedRootAtDeploy: string;
   // From the deployment record, not from the chain: `reviewThreshold` is a
   // `sealed` field, and sealed fields do not appear in the generated Ledger
-  // projection. The circuit reads it; no client can.
+  // projection. The circuit reads it; no client can. Every other value this
+  // script needs is read from the two contracts directly.
   reviewThreshold: string;
 };
 
@@ -135,7 +135,10 @@ const called = await (
 
 console.log(`Transaction ${called.public.txId}`);
 
-recordFiling(label, caseCommitment, config);
+// Recorded against THIS registry. The nullifier that backs a credential lives
+// in this contract's tree and nowhere else, so a filing is only ever meaningful
+// alongside the address it landed in.
+recordFiling(label, deployment.contractAddress, caseCommitment, config);
 
 // Read the public state back. This is output B: the count is public, the
 // reporter is not.

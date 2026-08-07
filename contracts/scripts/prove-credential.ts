@@ -42,6 +42,7 @@ import {
   subjectSecret,
   subjectLabel,
   subjectFilings,
+  filingsElsewhere,
   fromHex,
   toHex,
 } from '../src/midnight/subjects.js';
@@ -68,11 +69,26 @@ const label = subjectLabel();
 const spec = forSubject(FILING_REGISTRY, label);
 const secret = subjectSecret(label, config);
 
-const filed = subjectFilings(label, config);
+const registry = deployment.contractAddress;
+const filed = subjectFilings(label, registry, config);
 if (filed.length < 3) {
+  // Before blaming the reporter: filings against a PREVIOUS registry are the
+  // usual cause, because a redeploy starts an empty nullifier tree and
+  // `file-report` recommends redeploying whenever the admitted root diverges.
+  // The filings are real and still on chain; they just cannot be proved here.
+  const stranded = filingsElsewhere(label, registry, config);
+  const note = stranded.length
+    ? '\n\nThere ARE filings on local record, against a different registry:\n' +
+      stranded.map((e) => `  ${e.registry}  ${e.cases.length} filing(s)`).join('\n') +
+      '\nThe filing registry was redeployed. A new deployment starts an empty nullifier tree,\n' +
+      'so those filings stay on chain but cannot back a credential here. They have to be made\n' +
+      `again against ${registry}.`
+    : '';
   throw new Error(
-    `Reporter "${label}" has ${filed.length} filing(s) on local record; the credential needs 3. ` +
-      'File against three distinct admitted cases with `npm run file-report` first.',
+    `Reporter "${label}" has ${filed.length} filing(s) on local record against ${registry}; ` +
+      'the credential needs 3. File against three distinct admitted cases with ' +
+      '`npm run file-report` first.' +
+      note,
   );
 }
 // Three distinct cases. The circuit asserts distinctness itself, so taking the
