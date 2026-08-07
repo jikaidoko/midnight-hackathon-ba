@@ -11,7 +11,7 @@
 // remember to run it. Keep it as a second, independent source, useful where a
 // caller reads a stored proof without re-executing the circuit.
 
-import type { Ledger } from './managed/filing_registry/contract/index.js';
+import type { Ledger } from './managed/amparo/contract/index.js';
 
 export type MerkleDigest = { readonly field: bigint };
 

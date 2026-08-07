@@ -203,7 +203,7 @@ test('9. positionals: a flag VALUE is never mistaken for a positional', () => {
   assert.deepEqual(positionals(['--subject', 'sofia', '<hex>']), ['<hex>']);
   assert.deepEqual(positionals(['<hex>', '--subject', 'sofia']), ['<hex>']);
 
-  // The one that bites. `deploy-filing` reads positionals()[0] as the review
+  // The one that bites. `deploy` reads positionals()[0] as the review
   // threshold, so a leaked flag value becomes BigInt('ministry-of-labour').
   assert.deepEqual(
     positionals(['--context', 'ministry-of-labour', '<hex>']),

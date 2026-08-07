@@ -32,12 +32,8 @@ import {
   waitForSynced,
   closeWallet,
 } from '../src/midnight/providers.js';
-import { FILING_REGISTRY, forSubject } from '../src/midnight/contracts.js';
-import {
-  filingContract,
-  filingLedger,
-  filingNullifier,
-} from '../src/midnight/compiled-contract.js';
+import { AMPARO, forSubject } from '../src/midnight/contracts.js';
+import { amparoContract, ledger, filingNullifier } from '../src/midnight/compiled-contract.js';
 import {
   subjectSecret,
   subjectLabel,
@@ -46,15 +42,15 @@ import {
   fromHex,
   toHex,
 } from '../src/midnight/subjects.js';
-import type { SubjectPrivateState } from '../src/filing-witnesses.js';
+import { createSubjectState } from '../src/amparo-witnesses.js';
 
 const config = loadConfig();
-const filingFile = resolve(PKG_ROOT, `deployment.filing.${config.networkId}.json`);
+const deploymentFile = resolve(PKG_ROOT, `deployment.${config.networkId}.json`);
 
-if (!existsSync(filingFile)) {
-  throw new Error(`No filing registry deployment at ${filingFile}. Run \`npm run deploy-filing\`.`);
+if (!existsSync(deploymentFile)) {
+  throw new Error(`No deployment at ${deploymentFile}. Run \`npm run deploy\`.`);
 }
-const deployment = JSON.parse(readFileSync(filingFile, 'utf8')) as { contractAddress: string };
+const deployment = JSON.parse(readFileSync(deploymentFile, 'utf8')) as { contractAddress: string };
 
 const argv = process.argv.slice(2);
 const ctxIdx = argv.indexOf('--context');
@@ -66,23 +62,23 @@ if (!contextName || contextName.startsWith('--')) {
 const context = Uint8Array.from(createHash('sha256').update(contextName).digest());
 
 const label = subjectLabel();
-const spec = forSubject(FILING_REGISTRY, label);
+const spec = forSubject(AMPARO, label);
 const secret = subjectSecret(label, config);
 
 const registry = deployment.contractAddress;
 const filed = subjectFilings(label, registry, config);
 if (filed.length < 3) {
-  // Before blaming the reporter: filings against a PREVIOUS registry are the
-  // usual cause, because a redeploy starts an empty nullifier tree and
-  // `file-report` recommends redeploying whenever the admitted root diverges.
-  // The filings are real and still on chain; they just cannot be proved here.
+  // Before blaming the reporter: filings against a PREVIOUS deployment are the
+  // usual cause, because every deployment starts an empty nullifier tree and
+  // redeploying is routine while the work is in motion. Those filings are real
+  // and still on chain; they just cannot be proved against this contract.
   const stranded = filingsElsewhere(label, registry, config);
   const note = stranded.length
-    ? '\n\nThere ARE filings on local record, against a different registry:\n' +
+    ? '\n\nThere ARE filings on local record, against a different contract:\n' +
       stranded.map((e) => `  ${e.registry}  ${e.cases.length} filing(s)`).join('\n') +
-      '\nThe filing registry was redeployed. A new deployment starts an empty nullifier tree,\n' +
-      'so those filings stay on chain but cannot back a credential here. They have to be made\n' +
-      `again against ${registry}.`
+      '\nThose were made against a previous deployment. Every deployment starts an\n' +
+      'empty nullifier tree, so they stay on chain but cannot back a credential\n' +
+      `here. They have to be made again against ${registry}.`
     : '';
   throw new Error(
     `Reporter "${label}" has ${filed.length} filing(s) on local record against ${registry}; ` +
@@ -96,17 +92,17 @@ if (filed.length < 3) {
 const cases = filed.slice(0, 3).map((h) => fromHex(h, 'recorded case'));
 
 console.log(describe(config));
-console.log(`\nFiling registry: ${deployment.contractAddress}`);
-console.log(`Reporter:        ${label}`);
-console.log(`Verifier:        ${contextName}`);
+console.log(`\nContract: ${deployment.contractAddress}`);
+console.log(`Reporter: ${label}`);
+console.log(`Verifier: ${contextName}`);
 
 const ctx = await buildWallet(config);
 await waitForSynced(ctx);
-const providers = await buildProviders(ctx, config, FILING_REGISTRY);
+const providers = await buildProviders(ctx, config, AMPARO);
 
 const rawState = await providers.publicDataProvider.queryContractState(deployment.contractAddress);
-if (!rawState) throw new Error('Filing registry has no state on chain');
-const state = filingLedger(rawState.data);
+if (!rawState) throw new Error('Contract has no state on chain');
+const state = ledger(rawState.data);
 
 // Rebuild each nullifier through the contract's own pure circuit, then read its
 // path out of the on-chain tree. A missing path means that filing is not on
@@ -124,14 +120,14 @@ const paths = cases.map((kase) => {
   return path;
 });
 
-console.log(`Claimed root:    ${claimedRoot.field.toString()}`);
-console.log(`Paths resolved:  ${paths.length}/3`);
+console.log(`Claimed root: ${claimedRoot.field.toString()}`);
+console.log(`Paths found:  ${paths.length}/3`);
 
-const privateState: SubjectPrivateState = { subjectSecret: secret };
+const privateState = createSubjectState(secret);
 
 const contract = await findDeployedContract(providers as never, {
   contractAddress: deployment.contractAddress,
-  compiledContract: filingContract(config, spec),
+  compiledContract: amparoContract(config, spec),
   privateStateId: spec.privateStateId,
   initialPrivateState: privateState,
 } as never);

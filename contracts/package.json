@@ -6,12 +6,8 @@
   "description": "Amparo - Compact circuits for a private whistleblowing channel (Midnight Hackathon BA).",
   "license": "Apache-2.0",
   "scripts": {
-    "compile": "npm run compile:cases && npm run compile:filing",
-    "compile:cases": "compact compile src/case_admission.compact src/managed/case_admission",
-    "compile:cases:fast": "compact compile --skip-zk src/case_admission.compact src/managed/case_admission",
-    "compile:fast": "npm run compile:cases:fast && npm run compile:filing:fast",
-    "compile:filing": "compact compile src/filing_registry.compact src/managed/filing_registry",
-    "compile:filing:fast": "compact compile --skip-zk src/filing_registry.compact src/managed/filing_registry",
+    "compile": "compact compile src/amparo.compact src/managed/amparo",
+    "compile:fast": "compact compile --skip-zk src/amparo.compact src/managed/amparo",
     "test": "tsx --test \"src/**/*.test.ts\" \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "mn:up": "docker compose -f docker-compose.midnight.yml up -d",
@@ -22,7 +18,6 @@
     "check-wallet": "tsx scripts/check-wallet.ts",
     "deploy": "tsx scripts/deploy.ts",
     "admit-case": "tsx scripts/admit-case.ts",
-    "deploy-filing": "tsx scripts/deploy-filing.ts",
     "file-report": "tsx scripts/file-report.ts",
     "prove-credential": "tsx scripts/prove-credential.ts"
   },

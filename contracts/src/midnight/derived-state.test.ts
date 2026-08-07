@@ -1,10 +1,9 @@
 // derived-state.test.ts — the reporter's view, in the simulator.
 //
 // `deriveReporterView` is what a UI decides with: whether to offer a filing
-// button, whether to offer the credential, whether to warn that nothing is
-// fileable at all. Getting it wrong does not corrupt any state, it just makes
-// the interface confidently lie — offer a button that produces a failing proof,
-// or hide one that would have worked.
+// button, whether to offer the credential. Getting it wrong does not corrupt any
+// state, it just makes the interface confidently lie — offer a button that
+// produces a failing proof, or hide one that would have worked.
 //
 // So each case here is a question the interface has to answer, and the answer is
 // checked against a chain state built by really running the circuits.
@@ -17,7 +16,7 @@
 //   4. Public corroboration and the under-review flag.
 //   5. ADVERSARIAL — a reporter with a different secret sees none of it as
 //      theirs, which is the privacy property showing up in the view.
-//   6. Registry divergence disables filing across the board.
+//   6. A case admitted late appears and is immediately fileable.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,17 +26,15 @@ import {
   dummyContractAddress,
 } from '@midnight-ntwrk/compact-runtime';
 import {
-  Contract as CaseAdmission,
-  ledger as caseLedgerOf,
-  pureCircuits as casePure,
-} from '../managed/case_admission/contract/index.js';
+  Contract,
+  ledger,
+  pureCircuits,
+} from '../managed/amparo/contract/index.js';
 import {
-  Contract as FilingRegistry,
-  ledger as filingLedgerOf,
-} from '../managed/filing_registry/contract/index.js';
-import { witnesses as authorityWitnesses } from '../witnesses.js';
-import { witnesses as subjectWitnesses, createSubjectPrivateState } from '../filing-witnesses.js';
-import { createMerkleMirror, type LeafPath } from '../merkle-mirror.js';
+  witnesses,
+  createAuthorityState,
+  createSubjectState,
+} from '../amparo-witnesses.js';
 import { deriveReporterView, CREDENTIAL_FILINGS } from './derived-state.js';
 
 const COIN_PK = '00'.repeat(32);
@@ -56,46 +53,29 @@ const LATE_CASE = b32(0x44);
 
 const THRESHOLD = 3n;
 
-/** Both contracts, wired the way the deployment scripts wire them. */
 function setup(admitted: Uint8Array[] = [CASE_A, CASE_B, CASE_C]) {
-  const registry = createMerkleMirror();
-  const admission = new CaseAdmission(authorityWitnesses);
+  const contract = new Contract(witnesses);
   const addr = dummyContractAddress();
 
-  let caseState = admission.initialState(
-    createConstructorContext({ authoritySecret: AUTHORITY }, COIN_PK),
-    casePure.authorityDigest(AUTHORITY),
-    registry.root(),
-  ).currentContractState.data;
-
-  const admit = (kase: Uint8Array) => {
-    const newRoot = registry.insert(kase);
-    const ctx = createCircuitContext(addr, COIN_PK, caseState, { authoritySecret: AUTHORITY });
-    caseState = admission.circuits.admitCase(ctx, kase, newRoot).context.currentQueryContext.state;
-  };
-  for (const kase of admitted) admit(kase);
-
-  const filing = new FilingRegistry(subjectWitnesses);
-  let filingState = filing.initialState(
-    createConstructorContext(createSubjectPrivateState(SOFIA), COIN_PK),
-    registry.root(),
+  let state = contract.initialState(
+    createConstructorContext(createAuthorityState(AUTHORITY), COIN_PK),
+    pureCircuits.authorityDigest(AUTHORITY),
     THRESHOLD,
   ).currentContractState.data;
 
+  const admit = (kase: Uint8Array) => {
+    const ctx = createCircuitContext(addr, COIN_PK, state, createAuthorityState(AUTHORITY));
+    state = contract.circuits.admitCase(ctx, kase).context.currentQueryContext.state;
+  };
+  for (const kase of admitted) admit(kase);
+
   const file = (secret: Uint8Array, kase: Uint8Array) => {
-    const ctx = createCircuitContext(addr, COIN_PK, filingState, createSubjectPrivateState(secret));
-    filingState = filing.circuits
-      .registerFiling(ctx, kase, registry.pathFor(kase) as unknown as LeafPath)
-      .context.currentQueryContext.state;
+    const ctx = createCircuitContext(addr, COIN_PK, state, createSubjectState(secret));
+    state = contract.circuits.registerFiling(ctx, kase).context.currentQueryContext.state;
   };
 
   const view = (secret: Uint8Array) =>
-    deriveReporterView(
-      caseLedgerOf(caseState),
-      filingLedgerOf(filingState),
-      secret,
-      THRESHOLD,
-    );
+    deriveReporterView(ledger(state), secret, THRESHOLD);
 
   return { admit, file, view };
 }
@@ -111,10 +91,9 @@ test('1. a fresh registry: every case fileable, no credential yet', () => {
   const v = setup().view(SOFIA);
 
   assert.equal(v.cases.length, 3, 'all three admitted cases are visible');
+  assert.equal(v.admittedCount, 3n);
   assert.equal(v.myFilingCount, 0);
   assert.equal(v.canPresentCredential, false);
-  assert.equal(v.registryDiverged, false);
-  assert.equal(v.admittedRootLive, v.admittedRootFrozen);
 
   for (const c of v.cases) {
     assert.equal(c.hasFiled, false);
@@ -172,9 +151,7 @@ test('4. corroboration is public, and the flag flips at the threshold', () => {
   assert.equal(caseOf(v, CASE_A).reports, 3n);
   assert.equal(caseOf(v, CASE_A).underReview, true);
 
-  // Untouched cases are unaffected.
-  assert.equal(caseOf(v, CASE_B).reports, 0n);
-  assert.equal(caseOf(v, CASE_B).underReview, false);
+  assert.equal(caseOf(v, CASE_B).reports, 0n, 'untouched cases are unaffected');
 });
 
 test('5. ADVERSARIAL: a stranger sees the public counts and none of the filings', () => {
@@ -201,25 +178,25 @@ test('5. ADVERSARIAL: a stranger sees the public counts and none of the filings'
   assert.equal(e.view(SOFIA).myFilingCount, 3);
 });
 
-test('6. a case admitted after deployment makes nothing fileable', () => {
+test('6. a case admitted late shows up and is immediately fileable', () => {
+  // Before unification this was the broken case: the filing side froze the
+  // admitted root at construction, so a later admission was permanently
+  // unfilable and the view had to carry a `registryDiverged` flag telling the
+  // reporter that nothing at all could be filed. One contract, no frozen root.
   const e = setup();
   e.file(SOFIA, CASE_A);
   e.admit(LATE_CASE);
 
   const v = e.view(SOFIA);
+  assert.equal(v.cases.length, 4);
+  assert.equal(v.admittedCount, 4n);
+  assert.equal(caseOf(v, LATE_CASE).canFile, true, 'immediately fileable');
 
-  assert.equal(v.registryDiverged, true);
-  assert.notEqual(v.admittedRootLive, v.admittedRootFrozen);
-  assert.equal(v.cases.length, 4, 'the late case is visible in the registry');
+  e.file(SOFIA, LATE_CASE);
+  const after = e.view(SOFIA);
+  assert.equal(caseOf(after, LATE_CASE).hasFiled, true);
+  assert.equal(after.myFilingCount, 2);
 
-  // Not just the late one: the frozen root no longer matches ANY current path,
-  // so every filing would fail. An interface that greyed out only the new case
-  // would be wrong in the most confusing way available.
-  for (const c of v.cases) {
-    assert.equal(c.canFile, false, `case ${c.caseCommitment.slice(0, 8)} should be blocked`);
-  }
-
-  // The filing already on chain is unaffected; it is history, not a projection.
-  assert.equal(caseOf(v, CASE_A).hasFiled, true);
-  assert.equal(v.myFilingCount, 1);
+  // And the earlier filing is untouched.
+  assert.equal(caseOf(after, CASE_A).hasFiled, true);
 });

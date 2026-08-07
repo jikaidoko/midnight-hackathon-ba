@@ -18,7 +18,7 @@ import {
   type AlignedValue,
 } from '@midnight-ntwrk/compact-runtime';
 
-/** Must match the `<20, Bytes<32>>` in filing_registry.compact. */
+/** Must match the `<20, Bytes<32>>` of the trees in amparo.compact. */
 export const TREE_DEPTH = 20;
 
 const LEAF_T = new CompactTypeBytes(32);

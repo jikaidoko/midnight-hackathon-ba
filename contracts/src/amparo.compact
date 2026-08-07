@@ -1,0 +1,314 @@
+pragma language_version >= 0.23;
+import CompactStandardLibrary;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Amparo — one contract: case admission and the filing registry.
+//
+// This replaces `case_admission.compact` and `filing_registry.compact`, which
+// were split only because they were built in parallel. The split was not free:
+// the filing side received the admitted root as a CONSTRUCTOR ARGUMENT and froze
+// it, so a case admitted after deployment could never be filed against, and the
+// error said "Case is not in the admitted registry" — which reads like the case
+// is unknown when it is merely newer. One contract removes the frozen value
+// entirely; there is nothing left to go stale.
+//
+// Two outputs from one flow:
+//   A. a threshold credential — "I have filed at least three times" — that
+//      reveals neither which cases nor who the reporter is;
+//   B. a public per-case counter that flags a case for review once enough
+//      independent reports converge on it.
+//
+// Midnight paradigm (NOT eUTXO): secrets enter through `witness`, never touch
+// the chain nor the proof; writing public state requires an explicit
+// `disclose(...)`. Proving is necessarily client-side.
+//
+// Toolchain: language 0.23, compactc 0.31.x.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Public state: the registry ───────────────────────────────────────────────
+
+// Cases the oversight authority admitted. This is what makes output B
+// non-spammable: without it a case seal is a free witness value and one identity
+// inflates the aggregate with unlimited fresh seals.
+//
+// Membership is checked against this Set, not against a Merkle path. That is the
+// simplification unification buys: `registerFiling` necessarily DISCLOSES the
+// case — it is the key of the public counter — so a Set lookup on an
+// already-public value proves membership exactly and leaks nothing new. The
+// separate contract could not do this: it had no registry to look in, only a
+// root, so it needed a path.
+//
+// What this saves is COST, not privacy. Be precise about that, because the
+// tempting claim is wrong: the split contract compared with
+// `assert(merkleTreePathRoot(path) == admittedRoot)`, a pure comparison with no
+// ledger operation and no `disclose`, so the path never reached
+// `declare_pub_input` — measured on that contract, 2 of its 44 input variables
+// did, both of them the disclosed case. Removing an input that never left the
+// witness cannot reduce a leak. Privacy is byte-identical either way, because
+// the only thing protecting the reporter is `subjectSecret` disappearing into
+// an opaque hash, and that is unchanged.
+//
+// The `disclose` that WOULD have leaked belongs to the other integration one
+// could have written — `admittedCases.checkRoot(merkleTreePathRoot(path))` — a
+// ledger operation on a witness-derived value, which the compiler requires be
+// disclosed. That approach was not taken. What the Set actually buys is 40
+// fewer witness variables in the proof and no client-side tree fetch before
+// filing.
+export ledger admittedIndex: Set<Bytes<32>>;
+
+// The same admissions as a tree, kept as the public auditable record of what was
+// admitted and when. Nothing in this contract verifies against it: membership is
+// the Set above. It is Historic so that any future circuit proving membership
+// WITHOUT naming the case — which this one cannot, by design — is not
+// invalidated by later admissions.
+export ledger admittedCases: HistoricMerkleTree<20, Bytes<32>>;
+
+// Public aggregate: how many cases the control body admitted. Identifies nobody.
+export ledger admittedCount: Counter;
+
+// Commitment of the admitting authority: H(domain, secret). Public and opaque;
+// proving knowledge of the preimage is what gates `admitCase`.
+export ledger authorityCommitment: Bytes<32>;
+
+// ── Public state: filings ────────────────────────────────────────────────────
+
+// One entry per (reporter, case) pair that has already filed. Bound to the PAIR,
+// not just the case: it stops a single reporter from inflating one case, while
+// still letting different reporters report the same case. Queried with an
+// already-disclosed nullifier, so the lookup leaks nothing new.
+export ledger spentFilingNullifiers: Set<Bytes<32>>;
+
+// The same nullifiers, as a tree. This is what makes the credential sound: a Set
+// lookup with a privately-derived key is a disclosure — the compiler says so,
+// "ledger operation might disclose a hash of the witness value" — so proving "I
+// hold three of these" without naming them needs Merkle paths instead.
+// Historic, so a proof built before someone else files is still valid after.
+export ledger filingNullifierTree: HistoricMerkleTree<20, Bytes<32>>;
+
+// One entry per (reporter, presentation context). Stops a threshold proof from
+// being replayed against the same verifier.
+export ledger spentPresentationNullifiers: Set<Bytes<32>>;
+
+// Output B: how many distinct reporters have filed against each case. Public on
+// purpose — the subject of this count is an admitted site or incident, not a
+// person. Privacy points at the reporter; transparency points at the institution.
+export ledger caseReports: Map<Bytes<32>, Counter>;
+
+// Cases whose report count reached `reviewThreshold`. This is the flag the public
+// view watches flip live: a site moves to "under review" not because anyone was
+// identified, but because enough independent reports converged.
+export ledger casesUnderReview: Set<Bytes<32>>;
+
+// How many independent reports move a case to review. Sealed: deploy-time
+// configuration, never rewritable afterwards, and the compiler enforces it.
+//
+// Sealed also means INVISIBLE to clients — a sealed field is absent from the
+// generated Ledger projection. The circuit reads it; no UI can. Whatever
+// displays it has to carry it from the deployment.
+sealed ledger reviewThreshold: Uint<64>;
+
+// ── Private inputs ───────────────────────────────────────────────────────────
+
+// Secret of the control-body authority. Never revealed: the circuit only proves
+// that its digest matches the published commitment.
+witness authoritySecret(): Bytes<32>;
+
+// The reporter's only secret. Runs on their machine, never reaches the chain.
+witness subjectSecret(): Bytes<32>;
+
+// ── Constructor ──────────────────────────────────────────────────────────────
+
+// Both arguments are public configuration, not secrets, so disclosing them is
+// intentional. Note what is NOT here: no genesis root and no admitted root. Both
+// existed to seed values a circuit could not derive, and both are gone — the
+// registry is now in the same contract that reads it.
+constructor(authority: Bytes<32>, threshold: Uint<64>) {
+  authorityCommitment = disclose(authority);
+  reviewThreshold = disclose(threshold);
+}
+
+// ── Domain-separated derivations ─────────────────────────────────────────────
+
+// Domain-separated authority digest. Exported so deployment can compute
+// `authorityCommitment` with EXACTLY the same hashing the circuit recomputes;
+// reimplementing it in TypeScript would yield a commitment that never matches.
+export pure circuit authorityDigest(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "amparo:authority:v1"),
+    secret
+  ]);
+}
+
+// Ties a filing to the (reporter, case) pair.
+//
+// Exported as `pure` so the client can compute the exact same value to find its
+// leaf in the nullifier tree. Reimplementing this hash in TypeScript would
+// drift, and a drifted derivation produces a leaf that is not in the tree.
+export pure circuit filingNullifierOf(
+  secret: Bytes<32>,
+  caseCommitment: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "amparo:filing-nullifier:v1"),
+    secret,
+    caseCommitment
+  ]);
+}
+
+// Ties a threshold proof to the (reporter, verifier context) pair. A separate
+// domain prefix keeps it from ever colliding with a filing nullifier.
+//
+// Both derivations take the secret as a PARAMETER and both are `pure`, which is
+// what makes it impossible for either to call `subjectSecret()` on its own. A
+// helper that hides a witness read makes the NUMBER of reads invisible at the
+// call site, and that number is the security property itself — see the comment
+// at the top of `proveRepeatFilings`.
+pure circuit presentationNullifierOf(
+  secret: Bytes<32>,
+  context: Bytes<32>
+): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "amparo:presentation-nullifier:v1"),
+    secret,
+    context
+  ]);
+}
+
+// ── Authority gate ───────────────────────────────────────────────────────────
+
+// Proves knowledge of the authority secret without revealing it. The digest is
+// compared against the ledger inside an assert: no public write of the private
+// value happens, which is why it needs no `disclose` of its own.
+circuit assertAuthority(): [] {
+  assert(authorityDigest(authoritySecret()) == authorityCommitment,
+    "Unrecognized authority");
+}
+
+// ── Admission ────────────────────────────────────────────────────────────────
+
+// Admits a case into the registry. `caseCommitment` is opaque — the control body
+// builds it off-chain from the case file — so the contract learns nothing about
+// the case beyond its commitment.
+//
+// One parameter, where the split version took two. The second was `newRoot`, the
+// root the authority declared after inserting, and it was UNCONSTRAINED: `root()`
+// is runtime-only, so no circuit could bind it to the real tree. It existed
+// because a separate filing contract had to be told the root from outside. It is
+// gone, and with it an input the authority could have lied about and an
+// off-chain guard that existed only to watch for that lie.
+export circuit admitCase(caseCommitment: Bytes<32>): [] {
+  assertAuthority();
+
+  const leaf = disclose(caseCommitment);
+  assert(!admittedIndex.member(leaf), "Case already admitted");
+
+  admittedIndex.insert(leaf);
+  admittedCases.insert(leaf);
+  admittedCount.increment(1);
+}
+
+// ── Filing ───────────────────────────────────────────────────────────────────
+
+// Records one filing against an admitted case.
+//
+// The case is disclosed because output B requires it: the public counter is
+// keyed by case. What stays private is WHO filed — the nullifier is derived from
+// a secret the chain never sees, and two filings by the same reporter against
+// different cases are unlinkable to each other.
+export circuit registerFiling(caseCommitment: Bytes<32>): [] {
+  const caseKey = disclose(caseCommitment);
+
+  // The anchor. Against the live registry, so a case admitted one block ago is
+  // filable immediately — the failure mode the split contracts could not avoid.
+  assert(admittedIndex.member(caseKey), "Case is not in the admitted registry");
+
+  const secret = subjectSecret();
+  const nullifier = disclose(filingNullifierOf(secret, caseKey));
+  assert(!spentFilingNullifiers.member(nullifier), "Reporter already filed for this case");
+  spentFilingNullifiers.insert(nullifier);
+  filingNullifierTree.insert(nullifier);
+
+  // Output B. `Map<K, Counter>` does not auto-initialise: looking up a missing
+  // key fails, so the entry has to be created before the first increment.
+  if (!caseReports.member(caseKey)) {
+    caseReports.insert(caseKey, default<Counter>);
+  }
+  caseReports.lookup(caseKey).increment(1);
+
+  // Threshold flag. Written as `>=` on the running count rather than any
+  // subtraction: `count - threshold` underflows on Uint before the bar is met.
+  // Guarded by `member` so the set stays idempotent past the threshold.
+  if (!casesUnderReview.member(caseKey)
+      && caseReports.lookup(caseKey).read() >= reviewThreshold) {
+    casesUnderReview.insert(caseKey);
+  }
+}
+
+// ── Threshold credential (output A) ──────────────────────────────────────────
+
+// Proves the caller already has THREE distinct filings recorded on-chain,
+// revealing neither which ones nor who they are.
+//
+// ANCHORED, not self-reported. Each leaf must be a nullifier the caller can
+// derive from their own secret, and each path must reach a root of the public
+// nullifier tree. Inventing a count buys nothing: you cannot produce a Merkle
+// path to a leaf that was never inserted.
+//
+// Only `claimedRoot` is disclosed, and a tree root is public knowledge already.
+// The paths and the case commitments stay private, which is the whole point — a
+// Set lookup would have leaked them, since any ledger operation on a
+// witness-derived value counts as a disclosure in Compact 0.23.
+//
+// There is no `false` branch by design: a reporter below the bar cannot build a
+// passing transaction at all, so no context is consumed by a failed attempt.
+export circuit proveRepeatFilings(
+  cases: Vector<3, Bytes<32>>,
+  paths: Vector<3, MerkleTreePath<20, Bytes<32>>>,
+  claimedRoot: MerkleTreeDigest,
+  context: Bytes<32>
+): Boolean {
+  // ONE read of the witness, reused by every derivation below. Each call to
+  // `subjectSecret()` is an INDEPENDENT private input: the witness runs on the
+  // prover's machine and may answer differently every time. With one read per
+  // derivation, three people pool one filing each into a single "I filed three
+  // times" credential, and a fourth read dodges the presentation nullifier for
+  // an unlimited replay against the same verifier. Reading once makes both
+  // unrepresentable, because there is only one secret to be consistent with.
+  const secret = subjectSecret();
+
+  const root = disclose(claimedRoot);
+
+  // The anchor. Every assert below proves membership in SOME tree; this is the
+  // one that says the tree is ours. `checkRoot` is not `root()`: `root()` READS
+  // the root and is runtime-only, while `checkRoot(digest)` ASKS the ledger
+  // whether a digest was ever a root, and is callable in-circuit.
+  assert(filingNullifierTree.checkRoot(root),
+    "Claimed root is not a root of the on-chain nullifier tree");
+
+  // Distinct cases, or one filing would be counted three times.
+  assert(cases[0] != cases[1], "Cases presented must be distinct");
+  assert(cases[0] != cases[2], "Cases presented must be distinct");
+  assert(cases[1] != cases[2], "Cases presented must be distinct");
+
+  // Each leaf is a nullifier only this reporter can derive, and each path
+  // reaches the claimed root. All three derive from the SAME `secret`, so the
+  // three filings are provably one person's.
+  assert(paths[0].leaf == filingNullifierOf(secret, cases[0]), "Leaf is not a nullifier of the caller");
+  assert(paths[1].leaf == filingNullifierOf(secret, cases[1]), "Leaf is not a nullifier of the caller");
+  assert(paths[2].leaf == filingNullifierOf(secret, cases[2]), "Leaf is not a nullifier of the caller");
+
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[0]) == root, "Filing is not on record");
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[1]) == root, "Filing is not on record");
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[2]) == root, "Filing is not on record");
+
+  // One presentation per (reporter, verifier context). Spent only once every
+  // check above has passed, so a rejected attempt never burns the context.
+  // Derived from the same `secret` the leaves were checked against, which is
+  // what binds the replay guard to the identity that just proved the filings.
+  const presentation = disclose(presentationNullifierOf(secret, context));
+  assert(!spentPresentationNullifiers.member(presentation),
+    "Threshold proof already presented in this context");
+  spentPresentationNullifiers.insert(presentation);
+
+  return true;
+}
