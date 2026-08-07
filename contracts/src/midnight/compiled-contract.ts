@@ -29,11 +29,13 @@ import {
   Contract as CaseAdmissionContract,
   ledger as caseLedger,
   pureCircuits as casePureCircuits,
+  type Ledger as CaseAdmissionLedger,
 } from '../managed/case_admission/contract/index.js';
 import {
   Contract as FilingRegistryContract,
   ledger as filingLedger,
   pureCircuits as filingPureCircuits,
+  type Ledger as FilingRegistryLedger,
 } from '../managed/filing_registry/contract/index.js';
 import { witnesses as authorityWitnesses, type AuthorityPrivateState } from '../witnesses.js';
 import { witnesses as subjectWitnesses, type SubjectPrivateState } from '../filing-witnesses.js';
@@ -47,6 +49,9 @@ import {
 
 export { caseLedger, casePureCircuits, filingLedger, filingPureCircuits };
 export type { AuthorityPrivateState, SubjectPrivateState };
+// Re-exported so nothing outside this module has to reach into `src/managed/`,
+// which is the invariant that keeps the compiler output layout in one place.
+export type { CaseAdmissionLedger, FilingRegistryLedger };
 
 /** Descriptor for `case_admission`: class, witnesses, and where its ZK assets live. */
 export function amparoContract(
