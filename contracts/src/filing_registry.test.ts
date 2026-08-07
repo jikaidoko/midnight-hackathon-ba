@@ -199,26 +199,37 @@ test('8. ADVERSARIAL: zero filings cannot produce a credential', () => {
     'with nothing on chain there are no paths to present',
   );
 
-  // Now the interesting half. The attacker builds their OWN tree containing
-  // nullifiers they can legitimately derive, and presents paths into it.
+  // The interesting half. The attacker builds their OWN tree containing
+  // nullifiers they can legitimately derive, and presents paths into it. Every
+  // leaf and path assert in the circuit passes: the leaves really are their
+  // nullifiers and the paths really do reach the root they declared. Only the
+  // anchor separates this from an honest presentation.
   const forged = createMerkleMirror();
   const leaves = [CASE_A, CASE_B, CASE_C].map((c) => pureCircuits.filingNullifierOf(SOFIA, c));
   for (const l of leaves) forged.insert(l);
 
-  const out = present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, {
-    paths: leaves.map((l) => forged.pathFor(l)),
-    root: forged.root(),
-  });
-  assert.equal(out.result, true, 'the CIRCUIT accepts it — it cannot bind the root to the chain');
+  assert.throws(
+    () => present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, {
+      paths: leaves.map((l) => forged.pathFor(l)),
+      root: forged.root(),
+    }),
+    /not a root of the on-chain nullifier tree/i,
+    'the CIRCUIT rejects a tree of the caller\'s own making',
+  );
 
-  // Which is exactly why the verifier check is not optional.
+  // Nothing was consumed by the rejected attempt: the presentation nullifier is
+  // spent after the anchor, so the context survives for an honest presentation.
+  assert.equal(ledger(e.state).spentPresentationNullifiers.size(), 0n,
+    'a rejected forgery does not burn the verifier context');
+
+  // The off-chain guard agrees, independently. It is a second source, not the
+  // thing that closes the hole.
   assert.throws(
     () => assertClaimedRootIsOnChain(ledger(e.state), forged.root()),
     /not a root of the on-chain/i,
-    'the off-chain guard is what closes the hole',
   );
 
-  // And the honest path passes the same guard.
+  // And the honest path passes both.
   const real = threeFilings(e);
   assertClaimedRootIsOnChain(ledger(real), ledger(real).filingNullifierTree.root());
 });

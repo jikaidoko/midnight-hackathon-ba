@@ -171,11 +171,19 @@ export circuit registerFiling(
 // a Set lookup would have leaked them, since any ledger operation on a
 // witness-derived value counts as a disclosure in Compact 0.31.
 //
-// ⚠️ The verifier MUST check off-chain that `claimedRoot` is a real root of
-// `filingNullifierTree`. The circuit cannot do it: `root()` is runtime-only, so
-// no circuit can bind a declared root to the tree. Without that check a caller
-// could present paths into a tree of their own making. Same guard shape as
-// `assertMirrorMatchesTree` in case-registry.ts.
+// `claimedRoot` is bound to the chain IN-CIRCUIT by `checkRoot`. Without that
+// bind, a caller could build their own tree, insert three nullifiers they can
+// legitimately derive, and present paths into it — the leaf and path asserts
+// above would all pass. Anchoring it is what makes the credential sound.
+//
+// `checkRoot(digest)` is not `root()`. `root()` READS the root and is
+// runtime-only ("MerkleTree root is a runtime-only method, but was invoked
+// in-circuit"); `checkRoot` ASKS the ledger whether a digest was ever a root,
+// and is callable in-circuit. Conflating them is what pushes this guarantee
+// off-chain, where it depends on every verifier remembering to run it.
+//
+// Historic is what makes the bind usable: a proof built moments before someone
+// else files is still honest, and `checkRoot` still accepts its root.
 //
 // Three is fixed at compile time. Compact loops are compile-time bounded, so
 // the arity of the proof is too — a runtime N would not compile.
@@ -189,6 +197,11 @@ export circuit proveRepeatFilings(
   context: Bytes<32>
 ): Boolean {
   const root = disclose(claimedRoot);
+
+  // The anchor. Every assert below proves membership in SOME tree; this is the
+  // one that says the tree is ours.
+  assert(filingNullifierTree.checkRoot(root),
+    "Claimed root is not a root of the on-chain nullifier tree");
 
   // Distinct cases, or one filing would be counted three times.
   assert(cases[0] != cases[1], "Cases presented must be distinct");
