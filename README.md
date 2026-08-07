@@ -17,7 +17,7 @@ times** - without saying how many, which ones, or who.
 | `contracts/src/merkle-mirror.ts` | Merkle mirror, used by the adversarial tests to build a forged tree |
 | `contracts/src/verifier.ts` | Off-chain second source for a presented root |
 | `contracts/src/midnight/` | Network configuration, wallet, providers, contract descriptors |
-| `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present |
+| `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present, public view |
 | `contracts/src/*.test.ts` | Simulator tests (no proof server) |
 | `contracts/test/` | End-to-end product journey and the test strategy |
 | `contracts/docker-compose.midnight.yml` | Local standalone network |
@@ -68,6 +68,7 @@ npm run deploy         # deploy; generates the constructor proof. `-- 2` sets th
                        # review threshold; it defaults to 3 and is sealed after
                        # deployment, so this is the only place to choose it
 npm run admit-case     # admit one case end to end
+npm run ledger-view    # serve the public ledger, live, on http://127.0.0.1:8090
 npm run mn:down        # stop, and DELETE the chain state
 ```
 
@@ -129,6 +130,37 @@ command can be aimed elsewhere without editing a file that holds a seed:
 ```bash
 MN_NETWORK=undeployed MN_NODE_URL=http://127.0.0.1:9944 npm run check-wallet
 ```
+
+### The public view
+
+```bash
+npm run ledger-view                          # http://127.0.0.1:8090
+MN_LEDGER_VIEW_PORT=9000 npm run ledger-view # if 8090 is taken
+```
+
+The deliberately public half of the contract: how many independent reports each
+admitted case has, and which cases crossed the threshold into review. Run it
+alongside the reporter path above and the counters move on screen as filings
+land - the third report against a case flips it to **UNDER REVIEW** live.
+
+It is the one view that builds **no wallet**. Reading proves nothing, so there is
+no proof server either, and no seed, and no sync to wait for. An indexer is the
+entire dependency, which is what makes it safe to leave running on a projector:
+every failure mode the other paths share belongs to machinery this one never
+touches.
+
+Nothing on the page identifies a reporter, and that is structural rather than
+careful: `derivePublicView` takes no secret, so there is no parameter through
+which an identity could enter. It also stops at the case on purpose. The filing
+nullifiers are public ledger state and anyone may read them, but a nullifier is
+the one public value derived from a reporter's secret - putting them on a screen
+would publish the only per-person artifact the design has. Still unlinkable to a
+name, but no longer unlinkable to each other across one reporter's filings.
+
+The page polls the process; the process holds one live subscription to the chain.
+So a counter moving is the chain's own event arriving, not a poll that happened
+to catch it. `/api/state` serves the same snapshot as JSON, which is the boundary
+a richer frontend can consume without rebuilding any of this.
 
 ### Order matters, and each step rules out a different failure
 
