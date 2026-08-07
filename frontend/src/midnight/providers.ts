@@ -17,19 +17,23 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider'
 import type { AmparoConfig } from './config'
 
-/** Circuits with keys on disk. Pure circuits have none, so listing one fails the load. */
-export type FilingCircuitId = 'registerFiling' | 'proveRepeatFilings'
+/**
+ * Circuits with keys on disk that a page can reach. `admitCase` has one too,
+ * but it is the authority's alone — a reporter session never calls it, so it
+ * is left off this type rather than fetched and unused.
+ */
+export type AmparoCircuitId = 'registerFiling' | 'proveRepeatFilings'
 
 /**
  * Where the compiler's `keys/`, `zkir/` and `verifier/` are served from.
  *
  * They have to be reachable as static assets on this origin. That is a build
- * step, not a runtime one: `contracts/src/managed/filing_registry/` is copied
- * into `public/zk/` before the app is built. Missing keys otherwise surface as
- * a 404 during proving — several seconds after the user pressed the button —
- * so `assertZkAssets` checks for them up front.
+ * step, not a runtime one: `contracts/src/managed/amparo/` is copied into
+ * `public/zk/` before the app is built. Missing keys otherwise surface as a
+ * 404 during proving — several seconds after the user pressed the button — so
+ * `assertZkAssets` checks for them up front.
  */
-export const ZK_BASE = '/zk/filing_registry'
+export const ZK_BASE = '/zk/amparo'
 
 /**
  * Store names. NOT absolute paths.
@@ -48,7 +52,7 @@ export const PRIVATE_STATE_ID = 'amparo-subject'
 
 export interface AmparoProviders {
   publicDataProvider: ReturnType<typeof indexerPublicDataProvider>
-  zkConfigProvider: FetchZkConfigProvider<FilingCircuitId>
+  zkConfigProvider: FetchZkConfigProvider<AmparoCircuitId>
   proofProvider: ReturnType<typeof httpClientProofProvider>
   privateStateProvider: ReturnType<typeof levelPrivateStateProvider>
 }
@@ -95,6 +99,7 @@ function privateStatePassword(): string {
  * Without this the first symptom is a proof that fails after the transaction
  * flow has already started, which reads like a circuit problem. It is a
  * deployment problem, and it is knowable before anyone presses anything.
+ *
  */
 export async function assertZkAssets(): Promise<void> {
   const probe = `${ZK_BASE}/keys/registerFiling.prover`
@@ -102,14 +107,14 @@ export async function assertZkAssets(): Promise<void> {
   if (!response.ok) {
     throw new Error(
       `Proving keys are not being served (${probe} returned ${response.status}). ` +
-        'Copy `contracts/src/managed/filing_registry/` into `frontend/public/zk/` before ' +
+        'Copy `contracts/src/managed/amparo/` into `frontend/public/zk/` before ' +
         'building; the interface cannot generate a proof without them.',
     )
   }
 }
 
 export function buildProviders(config: AmparoConfig): AmparoProviders {
-  const zkConfigProvider = new FetchZkConfigProvider<FilingCircuitId>(ZK_BASE, fetch.bind(window))
+  const zkConfigProvider = new FetchZkConfigProvider<AmparoCircuitId>(ZK_BASE, fetch.bind(window))
   const password = privateStatePassword()
 
   return {
@@ -122,10 +127,10 @@ export function buildProviders(config: AmparoConfig): AmparoProviders {
       signingKeyStoreName: SIGNING_KEY_STORE,
       privateStoragePasswordProvider: async () => password,
       // Scopes storage so two reporters on one browser cannot read each other's
-      // credential. Keyed by the filing registry as well as the network: a
-      // redeploy starts an empty nullifier tree, and mixing the two would let
-      // the interface count filings that can never back a credential here.
-      accountId: `${config.networkId}:${config.filingRegistryAddress}`,
+      // credential. Keyed by the contract as well as the network: a redeploy
+      // starts an empty nullifier tree, and mixing the two would let the
+      // interface count filings that can never back a credential here.
+      accountId: `${config.networkId}:${config.contractAddress}`,
     }),
   }
 }

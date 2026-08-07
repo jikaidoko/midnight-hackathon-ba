@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck, AlertTriangle } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { AppShell } from '../components/Layout'
 import { Card, PrimaryButton, StatusChip } from '../components/UI'
 import { useReporterView } from '../services/useReporterView'
@@ -18,16 +18,6 @@ export default function ReportsPage() {
         Denuncias registradas <span className="count-pill">{view.myFilingCount}</span>
       </p>
     </section>
-
-    {/* Both roots come from the view rather than from a local flag. When they
-        diverge nothing is fileable, and every button below would produce a
-        failing proof — so the screen says it once, here, instead of letting the
-        user discover it one rejected proof at a time. */}
-    {view.registryDiverged && <div className="privacy-banner">
-      <AlertTriangle size={20}/>
-      <span><strong>El registro se movió.</strong><br/>
-        No se pueden registrar denuncias hasta que se actualice.</span>
-    </div>}
 
     {/* The differentiator, and it is gated on the chain's own count — not on a
         tally this client keeps, which is a tally this client could be wrong

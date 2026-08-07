@@ -16,10 +16,8 @@ export interface AmparoConfig {
   readonly indexerUrl: string
   readonly indexerWsUrl: string
   readonly proofServerUrl: string
-  /** Deployed `case_admission` address. */
-  readonly caseAdmissionAddress: string
-  /** Deployed `filing_registry` address. */
-  readonly filingRegistryAddress: string
+  /** Deployed `amparo` contract address. One contract, one address. */
+  readonly contractAddress: string
   /**
    * `reviewThreshold` cannot be read from the chain: it is a `sealed` ledger
    * field, and sealed fields are absent from the generated projection. The
@@ -75,8 +73,7 @@ export function loadConfig(): AmparoConfig {
     indexerUrl: required('VITE_MN_INDEXER_URL'),
     indexerWsUrl: required('VITE_MN_INDEXER_WS_URL'),
     proofServerUrl: required('VITE_MN_PROOF_SERVER_URL'),
-    caseAdmissionAddress: required('VITE_MN_CASE_ADMISSION_ADDRESS'),
-    filingRegistryAddress: required('VITE_MN_FILING_REGISTRY_ADDRESS'),
+    contractAddress: required('VITE_MN_CONTRACT_ADDRESS'),
     reviewThreshold: BigInt(threshold),
   }
 }

@@ -1,4 +1,4 @@
-// copy-zk.mjs - publishes the filing registry's ZK assets as static files.
+// copy-zk.mjs - publishes the amparo contract's ZK assets as static files.
 //
 // The browser fetches proving keys over HTTP from this origin, so they have to
 // be part of the built app. They are compiler output: gitignored, several
@@ -11,8 +11,8 @@
 import { cp, access, rm } from 'node:fs/promises';
 import { fileURLToPath, URL } from 'node:url';
 
-const SOURCE = fileURLToPath(new URL('../../contracts/src/managed/filing_registry', import.meta.url));
-const TARGET = fileURLToPath(new URL('../public/zk/filing_registry', import.meta.url));
+const SOURCE = fileURLToPath(new URL('../../contracts/src/managed/amparo', import.meta.url));
+const TARGET = fileURLToPath(new URL('../public/zk/amparo', import.meta.url));
 
 try {
   await access(SOURCE);
@@ -20,7 +20,7 @@ try {
   console.error(
     `No compiled contract at ${SOURCE}.\n` +
       'Compile it first, from WSL:\n' +
-      '  compact compile src/filing_registry.compact src/managed/filing_registry\n' +
+      '  compact compile src/amparo.compact src/managed/amparo\n' +
       'Never `npm run compile` from Windows: `compact` is also the NTFS compression tool, ' +
       'which returns 0 without compiling anything.',
   );

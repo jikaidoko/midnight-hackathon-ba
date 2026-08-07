@@ -16,11 +16,11 @@
 // The mapping to circuits, so it stays honest:
 //
 //   ReporterFeed.view$        (read only, no proof)
-//   ReportingService.file     -> registerFiling(caseCommitment, path)
+//   ReportingService.file     -> registerFiling(caseCommitment)
 //   CredentialService.present -> proveRepeatFilings(cases, paths, root, context)
 //   DisclosureService         -> NOTHING. See below.
 
-import type { CaseView, ReporterView } from '@amparo/contracts/view-types'
+import type { CaseView, ReporterView } from '@amparo/contracts/derived-state'
 
 export type { CaseView, ReporterView }
 

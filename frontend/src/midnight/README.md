@@ -19,7 +19,7 @@ Which implementation runs is decided once, in `../services/index.ts`, from
 ## Running against a chain
 
 ```bash
-cp .env.example .env        # fill in the two contract addresses
+cp .env.example .env        # fill in the contract address
 npm run build:chain         # copies the ZK assets, then builds
 ```
 

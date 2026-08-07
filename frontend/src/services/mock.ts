@@ -9,7 +9,6 @@
 //   - filing twice against one case is refused          (spentFilingNullifiers)
 //   - the credential unlocks at exactly three filings   (proveRepeatFilings)
 //   - the review flag flips at the threshold and stays  (casesUnderReview)
-//   - a diverged registry disables every filing at once (admittedRoot frozen)
 //
 // A mock that let you file twice, or unlocked the credential at two, would make
 // the demo look right and the integration fail later — and it would fail on
@@ -69,7 +68,6 @@ const INITIAL: MockCase[] = [
  */
 class MockChain implements ReporterFeed {
   private cases = INITIAL.map((c) => ({ ...c }))
-  private diverged = false
   private watchers = new Set<(v: ReporterView) => void>()
   private latest: ReporterView | null = null
 
@@ -83,7 +81,7 @@ class MockChain implements ReporterFeed {
       reports: c.reports,
       underReview: c.reports >= REVIEW_THRESHOLD,
       hasFiled: c.hasFiled,
-      canFile: !c.hasFiled && !this.diverged,
+      canFile: !c.hasFiled,
     }))
     const myFilingCount = this.cases.filter((c) => c.hasFiled).length
     return {
@@ -91,9 +89,7 @@ class MockChain implements ReporterFeed {
       myFilingCount,
       canPresentCredential: myFilingCount >= CREDENTIAL_FILINGS,
       reviewThreshold: REVIEW_THRESHOLD,
-      admittedRootFrozen: 1n,
-      admittedRootLive: this.diverged ? 2n : 1n,
-      registryDiverged: this.diverged,
+      admittedCount: BigInt(this.cases.length),
     }
   }
 
@@ -135,7 +131,6 @@ class MockChain implements ReporterFeed {
   async file(caseCommitment: string): Promise<TxResult> {
     const target = this.cases.find((c) => c.caseCommitment === caseCommitment)
     if (!target) throw new Error('Case is not in the admitted registry')
-    if (this.diverged) throw new Error('Case is not in the admitted registry')
     // The circuit's `spentFilingNullifiers` check, in the mock. Refusing here
     // is what keeps `myFilingCount` honest: a mock that allowed it would unlock
     // the credential with one filing repeated three times, which the real
@@ -155,12 +150,6 @@ class MockChain implements ReporterFeed {
     }
     await wait(PROVE_MS)
     return { txId: `mock-credential-${context}` }
-  }
-
-  /** Demo control: shows the state where nothing is fileable. Not a user action. */
-  setDiverged(value: boolean): void {
-    this.diverged = value
-    this.emit()
   }
 }
 
