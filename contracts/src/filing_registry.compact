@@ -32,7 +32,8 @@ import CompactStandardLibrary;
 // `admittedCases.checkRoot(merkleTreePathRoot(path))`. The historic ADT accepts
 // past roots, so in-flight filings are not invalidated by new admissions.
 //
-// Toolchain: compactc 0.31.1 / language 0.23.
+// Toolchain: language 0.23. Compiled clean on compactc 0.31.0 (WSL) and
+// 0.31.1 (macOS arm64).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Public state ─────────────────────────────────────────────────────────────
@@ -42,8 +43,16 @@ export ledger admittedRoot: MerkleTreeDigest;
 
 // One entry per (subject, case) pair that has already filed. Bound to the PAIR,
 // not just the case: it stops a single subject from inflating one case, while
-// still letting different subjects report the same case.
+// still letting different subjects report the same case. Queried with an
+// already-disclosed nullifier, so the lookup leaks nothing new.
 export ledger spentFilingNullifiers: Set<Bytes<32>>;
+
+// The same nullifiers, as a tree. This is what makes the credential sound: a
+// Set lookup with a privately-derived key is a disclosure (the compiler says so
+// — "ledger operation might disclose a hash of the witness value"), so proving
+// "I hold N of these" without naming them needs Merkle paths instead.
+// Historic, so a proof built before someone else files is still valid after.
+export ledger filingNullifierTree: HistoricMerkleTree<20, Bytes<32>>;
 
 // One entry per (subject, presentation context). Stops a threshold proof from
 // being replayed against the same verifier.
@@ -68,14 +77,6 @@ sealed ledger reviewThreshold: Uint<64>;
 // The subject's only secret. Runs on their machine, never reaches the chain.
 witness subjectSecret(): Bytes<32>;
 
-// Reads the subject's private filing count. The TypeScript layer owns the
-// storage; the circuit only consumes the value.
-witness filingCount(): Uint<64>;
-
-// Bumps that private count. Called only after every check has passed, so the
-// stored count and the spent nullifiers stay in step.
-witness bumpFilingCount(): [];
-
 // ── Constructor ──────────────────────────────────────────────────────────────
 
 // `root` is public configuration of the registry, not a secret: disclosing it
@@ -88,12 +89,23 @@ constructor(root: MerkleTreeDigest, threshold: Uint<64>) {
 // ── Domain-separated derivations ─────────────────────────────────────────────
 
 // Ties a filing to the (subject, case) pair.
-circuit filingNullifier(caseCommitment: Bytes<32>): Bytes<32> {
+//
+// Exported as `pure` so the client can compute the exact same value to mirror
+// the nullifier tree. Reimplementing this hash in TypeScript would drift, and
+// a drifted mirror produces paths that never verify.
+export pure circuit filingNullifierOf(
+  secret: Bytes<32>,
+  caseCommitment: Bytes<32>
+): Bytes<32> {
   return persistentHash<Vector<3, Bytes<32>>>([
     pad(32, "amparo:filing-nullifier:v1"),
-    subjectSecret(),
+    secret,
     caseCommitment
   ]);
+}
+
+circuit filingNullifier(caseCommitment: Bytes<32>): Bytes<32> {
+  return filingNullifierOf(subjectSecret(), caseCommitment);
 }
 
 // Ties a threshold proof to the (subject, verifier context) pair. A separate
@@ -124,6 +136,7 @@ export circuit registerFiling(
   const nullifier = disclose(filingNullifier(caseCommitment));
   assert(!spentFilingNullifiers.member(nullifier), "Subject already filed for this case");
   spentFilingNullifiers.insert(nullifier);
+  filingNullifierTree.insert(nullifier);
 
   // Output B. `Map<K, Counter>` does not auto-initialise: looking up a missing
   // key fails, so the entry has to be created before the first increment.
@@ -141,22 +154,63 @@ export circuit registerFiling(
     casesUnderReview.insert(caseKey);
   }
 
-  // Output A. Last, so the private count never runs ahead of what is on-chain.
-  bumpFilingCount();
 }
 
 // ── Threshold credential (output A) ──────────────────────────────────────────
 
-// Proves `count >= threshold` and reveals nothing else — not the real count,
-// not which cases, not who.
+// Proves the caller already has THREE distinct filings recorded on-chain,
+// revealing neither which ones nor who they are.
 //
-// Comparison is written without subtraction on purpose: `count - threshold`
-// underflows on Uint when the subject is below the bar.
-export circuit proveRepeatFilings(threshold: Uint<32>, context: Bytes<32>): Boolean {
-  const nullifier = disclose(presentationNullifier(context));
-  assert(!spentPresentationNullifiers.member(nullifier),
-    "Threshold proof already presented in this context");
-  spentPresentationNullifiers.insert(nullifier);
+// ANCHORED, not self-reported. Each leaf must be a nullifier the caller can
+// derive from their own secret, and each path must reach a root of the public
+// nullifier tree. Inventing a count buys nothing: you cannot produce a Merkle
+// path to a leaf that was never inserted.
+//
+// Only `claimedRoot` is disclosed, and a tree root is public knowledge already.
+// The paths and the case commitments stay private, which is the whole point —
+// a Set lookup would have leaked them, since any ledger operation on a
+// witness-derived value counts as a disclosure in Compact 0.31.
+//
+// ⚠️ The verifier MUST check off-chain that `claimedRoot` is a real root of
+// `filingNullifierTree`. The circuit cannot do it: `root()` is runtime-only, so
+// no circuit can bind a declared root to the tree. Without that check a caller
+// could present paths into a tree of their own making. Same guard shape as
+// `assertMirrorMatchesTree` in case-registry.ts.
+//
+// Three is fixed at compile time. Compact loops are compile-time bounded, so
+// the arity of the proof is too — a runtime N would not compile.
+//
+// There is no `false` branch by design: a subject below the bar cannot build a
+// passing transaction at all, so no context is consumed by a failed attempt.
+export circuit proveRepeatFilings(
+  cases: Vector<3, Bytes<32>>,
+  paths: Vector<3, MerkleTreePath<20, Bytes<32>>>,
+  claimedRoot: MerkleTreeDigest,
+  context: Bytes<32>
+): Boolean {
+  const root = disclose(claimedRoot);
 
-  return disclose(filingCount() >= threshold);
+  // Distinct cases, or one filing would be counted three times.
+  assert(cases[0] != cases[1], "Cases presented must be distinct");
+  assert(cases[0] != cases[2], "Cases presented must be distinct");
+  assert(cases[1] != cases[2], "Cases presented must be distinct");
+
+  // Each leaf is a nullifier only this subject can derive, and each path
+  // reaches the claimed root.
+  assert(paths[0].leaf == filingNullifier(cases[0]), "Leaf is not a nullifier of the caller");
+  assert(paths[1].leaf == filingNullifier(cases[1]), "Leaf is not a nullifier of the caller");
+  assert(paths[2].leaf == filingNullifier(cases[2]), "Leaf is not a nullifier of the caller");
+
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[0]) == root, "Filing is not on record");
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[1]) == root, "Filing is not on record");
+  assert(merkleTreePathRoot<20, Bytes<32>>(paths[2]) == root, "Filing is not on record");
+
+  // One presentation per (subject, verifier context). Spent only once every
+  // check above has passed, so a rejected attempt never burns the context.
+  const presentation = disclose(presentationNullifier(context));
+  assert(!spentPresentationNullifiers.member(presentation),
+    "Threshold proof already presented in this context");
+  spentPresentationNullifiers.insert(presentation);
+
+  return true;
 }

@@ -1,31 +1,29 @@
-// filing_registry.test.ts — the filing registry, in the Compact
-// runtime SIMULATOR. Deploy-free and prover-free: it runs circuit logic
-// (asserts, state transitions) deterministically, without generating a ZK proof
-// or touching testnet, DUST or a proof server.
+// filing_registry.test.ts — the filing registry, in the Compact runtime
+// SIMULATOR. Deploy-free and prover-free: it runs circuit logic (asserts, state
+// transitions) deterministically, without generating a ZK proof or touching
+// testnet, DUST or a proof server.
 //
 // Run: `npm test` (tsx resolves the .js -> .ts imports of the generated code;
 // plain `node --test` does not).
 //
 // Coverage, and why each case exists:
-//   1. Initial state: nothing spent, deployed root matches the mirror.
+//   1. Initial state.
 //   2. Happy path: a filing against an admitted case.
 //   3. ADVERSARIAL — a path for a case that was never admitted is rejected.
-//      This is the security argument of the whole design, as an executable test:
-//      the Merkle path is a witness value, so a subject can fabricate one; the
-//      circuit re-derives the root and catches it.
 //   4. A path whose leaf disagrees with the claimed case is rejected.
-//   5. Nullifier: the same subject cannot file twice for the same case.
-//   6. The nullifier is bound to the PAIR — different subjects may file the
-//      same case, which is precisely what the public alarm needs.
-//   7. Threshold credential: >= N is true at the bar and false below it, and
-//      the real count never reaches public state.
-//   8. Presentation nullifier: a threshold proof cannot be replayed in the same
-//      verifier context.
-//   9. The subject's secret never appears in public state.
-//  10. Output B: the public per-case counter tracks distinct subjects.
-//  11. Counts stay isolated per case.
-//  12. A case flips to under review once the threshold is reached.
-//  13. The under-review set is idempotent past the threshold.
+//   5. The same subject cannot file twice for the same case.
+//   6. Nullifiers are bound to the PAIR, so different subjects may file the
+//      same case. This is the mechanism, NOT Sybil resistance — see 13.
+//   7. Credential happy path: three real filings produce a valid proof.
+//   8. ADVERSARIAL — the central claim. Zero filings cannot produce a
+//      credential, whatever the private state says.
+//   9. ADVERSARIAL — one filing cannot be presented three times.
+//  10. ADVERSARIAL — you cannot present another subject's filings.
+//  11. A rejected presentation does not burn the verifier context.
+//  12. Public per-case counter and the under-review flag.
+//  13. KNOWN LIMITATION, asserted so it cannot rot silently into a claim we do
+//      not have: output B counts distinct SECRETS, not distinct PEOPLE.
+//  14. The subject secret never appears in public state.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,274 +33,300 @@ import {
   dummyContractAddress,
   type CircuitContext,
 } from '@midnight-ntwrk/compact-runtime';
-import { Contract, ledger } from './managed/filing_registry/contract/index.js';
+import { Contract, ledger, pureCircuits } from './managed/filing_registry/contract/index.js';
 import {
   witnesses,
   createSubjectPrivateState,
   type SubjectPrivateState,
 } from './filing-witnesses.js';
-import { createAdmittedRegistry, toHex, type AdmittedPath } from './admitted-paths.js';
+import { createMerkleMirror, toHex, type LeafPath, type MerkleDigest } from './merkle-mirror.js';
+import { assertClaimedRootIsOnChain } from './verifier.js';
 
 const COIN_PK = '00'.repeat(32);
 const b32 = (seed: number): Uint8Array => new Uint8Array(32).fill(seed);
 
-const SOFIA_SECRET = b32(0x50);
-const OTHER_SECRET = b32(0x60);
+const SOFIA = b32(0x50);
+const OTHER = b32(0x60);
+const THIRD = b32(0x70);
 
 const CASE_A = b32(0x11);
 const CASE_B = b32(0x22);
+const CASE_C = b32(0x33);
 const NEVER_ADMITTED = b32(0x99);
 
-const VERIFIER_CTX = b32(0x01);
-const OTHER_VERIFIER_CTX = b32(0x02);
+const VERIFIER = b32(0x01);
+const OTHER_VERIFIER = b32(0x02);
 
 type LedgerState = CircuitContext<SubjectPrivateState>['currentQueryContext']['state'];
 
-/** A deployed contract plus the off-chain mirror that produced its root. */
-function setup(admittedCases: Uint8Array[] = [CASE_A, CASE_B], reviewThreshold = 3n) {
-  const registry = createAdmittedRegistry();
-  for (const c of admittedCases) registry.admit(c);
+/**
+ * A deployed contract plus two off-chain mirrors: the admitted-case registry,
+ * whose root the contract is deployed with, and the nullifier tree, which the
+ * client rebuilds as filings land so it can produce credential paths.
+ */
+function setup(admitted: Uint8Array[] = [CASE_A, CASE_B, CASE_C], reviewThreshold = 3n) {
+  const cases = createMerkleMirror();
+  for (const c of admitted) cases.insert(c);
 
   const contract = new Contract<SubjectPrivateState>(witnesses);
   const init = contract.initialState(
-    createConstructorContext<SubjectPrivateState>(
-      createSubjectPrivateState(SOFIA_SECRET),
-      COIN_PK,
-    ),
-    registry.root(),
+    createConstructorContext<SubjectPrivateState>(createSubjectPrivateState(SOFIA), COIN_PK),
+    cases.root(),
     reviewThreshold,
   );
 
   return {
     contract,
-    registry,
+    cases,
     addr: dummyContractAddress(),
     state: init.currentContractState.data as LedgerState,
-    priv: createSubjectPrivateState(SOFIA_SECRET),
   };
 }
 
 type Env = ReturnType<typeof setup>;
 
-/** Runs `registerFiling`, threading both public and private state forward. */
+/**
+ * Runs `registerFiling` and advances the nullifier mirror in lockstep — only
+ * after the on-chain call succeeded, so a rejected filing never desynchronises
+ * the mirror.
+ */
 function file(
-  c: Env,
-  state: LedgerState,
-  priv: SubjectPrivateState,
-  caseCommitment: Uint8Array,
-  path: AdmittedPath,
-): { state: LedgerState; priv: SubjectPrivateState } {
-  const ctx = createCircuitContext<SubjectPrivateState>(c.addr, COIN_PK, state, priv);
-  const out = c.contract.circuits.registerFiling(ctx, caseCommitment, path);
-  return {
-    state: out.context.currentQueryContext.state,
-    priv: out.context.currentPrivateState,
-  };
+  e: Env, state: LedgerState, secret: Uint8Array, kase: Uint8Array, path?: LeafPath,
+): LedgerState {
+  const ctx = createCircuitContext<SubjectPrivateState>(
+    e.addr, COIN_PK, state, createSubjectPrivateState(secret),
+  );
+  const out = e.contract.circuits.registerFiling(ctx, kase, path ?? e.cases.pathFor(kase));
+  return out.context.currentQueryContext.state;
 }
 
-/** Runs `proveRepeatFilings` and returns the boolean plus the new state. */
-function prove(
-  c: Env,
+/** Runs `proveRepeatFilings` with paths taken from the nullifier mirror. */
+function present(
+  e: Env,
   state: LedgerState,
-  priv: SubjectPrivateState,
-  threshold: bigint,
-  verifierContext: Uint8Array,
+  secret: Uint8Array,
+  cases: [Uint8Array, Uint8Array, Uint8Array],
+  verifier: Uint8Array,
+  opts: { paths?: LeafPath[]; root?: MerkleDigest } = {},
 ): { result: boolean; state: LedgerState } {
-  const ctx = createCircuitContext<SubjectPrivateState>(c.addr, COIN_PK, state, priv);
-  const out = c.contract.circuits.proveRepeatFilings(ctx, threshold, verifierContext);
+  const tree = ledger(state).filingNullifierTree;
+  const paths = opts.paths ?? cases.map((c) => {
+    const leaf = pureCircuits.filingNullifierOf(secret, c);
+    const p = tree.findPathForLeaf(leaf);
+    if (!p) throw new Error(`no filing on record for this leaf: ${toHex(leaf)}`);
+    return p as unknown as LeafPath;
+  });
+  const ctx = createCircuitContext<SubjectPrivateState>(
+    e.addr, COIN_PK, state, createSubjectPrivateState(secret),
+  );
+  const out = e.contract.circuits.proveRepeatFilings(
+    ctx, cases, paths as never, opts.root ?? tree.root(), verifier,
+  );
   return { result: out.result, state: out.context.currentQueryContext.state };
 }
 
-test('1. initial state: nothing spent and the deployed root matches the mirror', () => {
-  const c = setup();
-  const l = ledger(c.state);
+/** Three real filings by one subject. */
+function threeFilings(e: Env): LedgerState {
+  let s = e.state;
+  for (const c of [CASE_A, CASE_B, CASE_C]) s = file(e, s, SOFIA, c);
+  return s;
+}
 
-  assert.equal(l.spentFilingNullifiers.size(), 0n, 'no filings yet');
-  assert.equal(l.spentPresentationNullifiers.size(), 0n, 'no proofs presented yet');
-  assert.equal(
-    l.admittedRoot.field,
-    c.registry.root().field,
-    'the contract was deployed with the mirror root',
-  );
+test('1. initial state is empty', () => {
+  const e = setup();
+  const l = ledger(e.state);
+  assert.equal(l.spentFilingNullifiers.size(), 0n);
+  assert.equal(l.spentPresentationNullifiers.size(), 0n);
+  assert.equal(l.admittedRoot.field, e.cases.root().field);
 });
 
 test('2. happy path: a filing against an admitted case is accepted', () => {
-  const c = setup();
-  const r = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
-  const l = ledger(r.state);
-
-  assert.equal(l.spentFilingNullifiers.size(), 1n, 'one nullifier spent');
-  assert.equal(r.priv.filingCount, 1n, 'the private count advanced');
+  const e = setup();
+  const s = file(e, e.state, SOFIA, CASE_A);
+  assert.equal(ledger(s).spentFilingNullifiers.size(), 1n);
 });
 
 test('3. ADVERSARIAL: a path for a case that was never admitted is rejected', () => {
-  const c = setup();
-
-  // The subject builds a path in their own tree — the circuit never saw it.
-  // This is exactly the attack the design has to survive: the path is a witness
-  // value, so nothing stops a subject from fabricating one.
-  const rogue = createAdmittedRegistry();
-  rogue.admit(NEVER_ADMITTED);
-
+  const e = setup();
+  const rogue = createMerkleMirror();
+  rogue.insert(NEVER_ADMITTED);
   assert.throws(
-    () => file(c, c.state, c.priv, NEVER_ADMITTED, rogue.pathFor(NEVER_ADMITTED)),
+    () => file(e, e.state, SOFIA, NEVER_ADMITTED, rogue.pathFor(NEVER_ADMITTED)),
     /not in the admitted registry/i,
-    'a fabricated path must not produce a valid filing',
   );
 });
 
 test('4. a path whose leaf disagrees with the claimed case is rejected', () => {
-  const c = setup();
-
+  const e = setup();
   assert.throws(
-    () => file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_B)),
+    () => file(e, e.state, SOFIA, CASE_A, e.cases.pathFor(CASE_B)),
     /leaf does not match/i,
-    'the leaf must be the case being filed',
   );
 });
 
-test('5. nullifier: the same subject cannot file twice for the same case', () => {
-  const c = setup();
-  const first = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
+test('5. the same subject cannot file twice for the same case', () => {
+  const e = setup();
+  const s = file(e, e.state, SOFIA, CASE_A);
+  assert.throws(() => file(e, s, SOFIA, CASE_A), /already filed/i);
+});
+
+test('6. nullifiers are bound to the (subject, case) pair', () => {
+  const e = setup();
+  let s = file(e, e.state, SOFIA, CASE_A);
+  s = file(e, s, OTHER, CASE_A);
+  assert.equal(ledger(s).spentFilingNullifiers.size(), 2n);
+});
+
+test('7. credential: three real filings produce a valid proof', () => {
+  const e = setup();
+  const s = threeFilings(e);
+  const out = present(e, s, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER);
+  assert.equal(out.result, true);
+  assert.equal(ledger(out.state).spentPresentationNullifiers.size(), 1n);
+});
+
+test('8. ADVERSARIAL: zero filings cannot produce a credential', () => {
+  // The earlier design read a private counter, so a subject could claim any
+  // number. Now the proof needs Merkle paths into the public nullifier tree,
+  // and there is no path to a leaf that was never inserted. The private state
+  // is under the attacker's control and it no longer buys anything.
+  const e = setup();
+  assert.equal(ledger(e.state).spentFilingNullifiers.size(), 0n, 'nothing on chain');
 
   assert.throws(
-    () => file(c, first.state, first.priv, CASE_A, c.registry.pathFor(CASE_A)),
-    /already filed/i,
-    'a second filing for the same case must be refused',
+    () => present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER),
+    /no filing on record/i,
+    'with nothing on chain there are no paths to present',
+  );
+
+  // Now the interesting half. The attacker builds their OWN tree containing
+  // nullifiers they can legitimately derive, and presents paths into it.
+  const forged = createMerkleMirror();
+  const leaves = [CASE_A, CASE_B, CASE_C].map((c) => pureCircuits.filingNullifierOf(SOFIA, c));
+  for (const l of leaves) forged.insert(l);
+
+  const out = present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, {
+    paths: leaves.map((l) => forged.pathFor(l)),
+    root: forged.root(),
+  });
+  assert.equal(out.result, true, 'the CIRCUIT accepts it — it cannot bind the root to the chain');
+
+  // Which is exactly why the verifier check is not optional.
+  assert.throws(
+    () => assertClaimedRootIsOnChain(ledger(e.state), forged.root()),
+    /not a root of the on-chain/i,
+    'the off-chain guard is what closes the hole',
+  );
+
+  // And the honest path passes the same guard.
+  const real = threeFilings(e);
+  assertClaimedRootIsOnChain(ledger(real), ledger(real).filingNullifierTree.root());
+});
+
+test('9. ADVERSARIAL: one filing cannot be presented three times', () => {
+  const e = setup();
+  const s = file(e, e.state, SOFIA, CASE_A);
+  assert.throws(
+    () => present(e, s, SOFIA, [CASE_A, CASE_A, CASE_A], VERIFIER),
+    /must be distinct/i,
   );
 });
 
-test('6. the nullifier is bound to the (subject, case) pair, not just the case', () => {
-  const c = setup();
-  const mine = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
+test('10. ADVERSARIAL: you cannot present another subject’s filings', () => {
+  const e = setup();
+  const s = threeFilings(e);
 
-  // A different subject reports the same case. This must be allowed: it is what
-  // makes independent corroboration — and the public alarm — possible.
-  const otherPriv = createSubjectPrivateState(OTHER_SECRET);
-  const theirs = file(c, mine.state, otherPriv, CASE_A, c.registry.pathFor(CASE_A));
-
-  assert.equal(
-    ledger(theirs.state).spentFilingNullifiers.size(),
-    2n,
-    'two distinct subjects produced two distinct nullifiers for one case',
+  // OTHER filed nothing, but the tree is full of SOFIA's nullifiers. Handing
+  // the paths over does not help: each leaf must derive from the presenter's
+  // own secret.
+  const tree = ledger(s).filingNullifierTree;
+  const stolen = [CASE_A, CASE_B, CASE_C].map(
+    (c) => tree.findPathForLeaf(pureCircuits.filingNullifierOf(SOFIA, c)) as unknown as LeafPath,
   );
-  assert.equal(theirs.priv.filingCount, 1n, 'the second subject counts their own filing');
-});
-
-test('7. threshold credential: true at the bar, false below it, count stays private', () => {
-  const c = setup([CASE_A, CASE_B, b32(0x33)]);
-
-  let s = c.state;
-  let p = c.priv;
-  for (const kase of [CASE_A, CASE_B, b32(0x33)]) {
-    const r = file(c, s, p, kase, c.registry.pathFor(kase));
-    s = r.state;
-    p = r.priv;
-  }
-  assert.equal(p.filingCount, 3n, 'three filings accumulated privately');
-
-  assert.equal(prove(c, s, p, 3n, VERIFIER_CTX).result, true, '3 >= 3');
-  assert.equal(prove(c, s, p, 4n, OTHER_VERIFIER_CTX).result, false, '3 >= 4 is false');
-
-  // The real count is nowhere in public state — only the boolean crossed over.
-  const publicDump = JSON.stringify(ledger(s), (_k, v) =>
-    typeof v === 'bigint' ? v.toString() : v,
-  );
-  assert.ok(!publicDump.includes('"3"'), 'the real filing count never reaches the ledger');
-});
-
-test('8. presentation nullifier: a proof cannot be replayed in the same context', () => {
-  const c = setup();
-  const r = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
-
-  const first = prove(c, r.state, r.priv, 1n, VERIFIER_CTX);
-  assert.equal(first.result, true, '1 >= 1');
 
   assert.throws(
-    () => prove(c, first.state, r.priv, 1n, VERIFIER_CTX),
+    () => present(e, s, OTHER, [CASE_A, CASE_B, CASE_C], VERIFIER, { paths: stolen }),
+    /not a nullifier of the caller/i,
+  );
+});
+
+test('11. a rejected presentation does not burn the verifier context', () => {
+  const e = setup();
+  const s = threeFilings(e);
+
+  assert.throws(
+    () => present(e, s, SOFIA, [CASE_A, CASE_A, CASE_B], VERIFIER),
+    /must be distinct/i,
+  );
+
+  const ok = present(e, s, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER);
+  assert.equal(ok.result, true, 'the failed attempt consumed nothing');
+
+  assert.throws(
+    () => present(e, ok.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER),
     /already presented/i,
-    'the same verifier context must not accept the proof twice',
   );
-
-  // A different verifier is a different context, so it is still allowed.
   assert.equal(
-    prove(c, first.state, r.priv, 1n, OTHER_VERIFIER_CTX).result,
+    present(e, ok.state, SOFIA, [CASE_A, CASE_B, CASE_C], OTHER_VERIFIER).result,
     true,
-    'a different context is a fresh presentation',
+    'a different verifier is a fresh context',
   );
 });
 
-test('10. output B: the public per-case counter tracks distinct subjects', () => {
-  const c = setup();
+test('12. output B: per-case counter and the under-review flag', () => {
+  const e = setup([CASE_A], 3n);
+  let s = e.state;
 
-  // A case nobody has reported has no entry at all — the map does not
-  // auto-initialise, which is why registerFiling creates the key first.
-  assert.equal(ledger(c.state).caseReports.member(CASE_A), false, 'no entry before the first filing');
+  assert.equal(ledger(s).caseReports.member(CASE_A), false, 'no entry before the first filing');
 
-  const mine = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
-  assert.equal(ledger(mine.state).caseReports.lookup(CASE_A).read(), 1n, 'first report counted');
+  s = file(e, s, SOFIA, CASE_A);
+  assert.equal(ledger(s).caseReports.lookup(CASE_A).read(), 1n);
+  assert.equal(ledger(s).casesUnderReview.member(CASE_A), false);
 
-  const otherPriv = createSubjectPrivateState(OTHER_SECRET);
-  const theirs = file(c, mine.state, otherPriv, CASE_A, c.registry.pathFor(CASE_A));
+  s = file(e, s, OTHER, CASE_A);
+  s = file(e, s, THIRD, CASE_A);
+  const l = ledger(s);
+  assert.equal(l.caseReports.lookup(CASE_A).read(), 3n);
+  assert.equal(l.casesUnderReview.member(CASE_A), true, 'threshold reached');
+  assert.equal(l.casesUnderReview.size(), 1n, 'listed once, not once per report');
+});
+
+test('13. KNOWN LIMITATION: output B counts secrets, not people', () => {
+  // subjectSecret is unanchored — nothing ties it to a person. One actor with
+  // three invented secrets moves the public counter and trips the flag. Output
+  // A is unaffected: its claim is "I filed these", which stays true. The public
+  // alarm, however, is NOT Sybil-resistant. Anchoring identity is the next
+  // step; this test exists so the gap cannot quietly become a claim.
+  const e = setup([CASE_A], 3n);
+  let s = e.state;
+  for (const invented of [b32(0xf1), b32(0xf2), b32(0xf3)]) {
+    s = file(e, s, invented, CASE_A);
+  }
+
+  assert.equal(ledger(s).caseReports.lookup(CASE_A).read(), 3n);
   assert.equal(
-    ledger(theirs.state).caseReports.lookup(CASE_A).read(),
-    2n,
-    'independent corroboration raises the public count',
+    ledger(s).casesUnderReview.member(CASE_A),
+    true,
+    'documented gap: one actor reached the threshold alone',
   );
 });
 
-test('11. the public counter is per case: filings do not leak across cases', () => {
-  const c = setup();
-
-  const first = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
-  const second = file(c, first.state, first.priv, CASE_B, c.registry.pathFor(CASE_B));
-  const l = ledger(second.state);
-
-  assert.equal(l.caseReports.lookup(CASE_A).read(), 1n, 'case A untouched by the case B filing');
-  assert.equal(l.caseReports.lookup(CASE_B).read(), 1n, 'case B counted on its own key');
-  assert.equal(l.caseReports.size(), 2n, 'one entry per reported case');
-});
-
-test('12. output B: a case flips to under review once the threshold is reached', () => {
-  const c = setup([CASE_A], 3n);
-  const secrets = [SOFIA_SECRET, OTHER_SECRET, b32(0x70)];
-
-  let s = c.state;
-  for (const secret of secrets.slice(0, 2)) {
-    s = file(c, s, createSubjectPrivateState(secret), CASE_A, c.registry.pathFor(CASE_A)).state;
-  }
-  assert.equal(ledger(s).casesUnderReview.member(CASE_A), false, 'two reports is below the bar');
-
-  s = file(c, s, createSubjectPrivateState(secrets[2]!), CASE_A, c.registry.pathFor(CASE_A)).state;
+test('14. the subject secret never appears in public state', () => {
+  const e = setup();
+  const s = threeFilings(e);
   const l = ledger(s);
-  assert.equal(l.caseReports.lookup(CASE_A).read(), 3n, 'three independent reports');
-  assert.equal(l.casesUnderReview.member(CASE_A), true, 'the case is now under review');
-});
 
-test('13. the under-review set is idempotent past the threshold', () => {
-  const c = setup([CASE_A], 1n);
+  // Iterate the ADTs. JSON.stringify over a ledger object serialises the
+  // collections as {} even when populated, so a dump-and-grep test asserts
+  // nothing at all.
+  const published = [
+    ...[...l.spentFilingNullifiers].map(toHex),
+    ...[...l.spentPresentationNullifiers].map(toHex),
+  ];
 
-  let s = c.state;
-  for (const secret of [SOFIA_SECRET, OTHER_SECRET]) {
-    s = file(c, s, createSubjectPrivateState(secret), CASE_A, c.registry.pathFor(CASE_A)).state;
+  assert.equal(published.length, 3, 'the test actually inspected published entries');
+  assert.ok(!published.includes(toHex(SOFIA)), 'the secret is not in the ledger');
+  for (const c of [CASE_A, CASE_B, CASE_C]) {
+    assert.ok(!published.includes(toHex(c)), 'raw case commitments are not the published values');
   }
-
-  const l = ledger(s);
-  assert.equal(l.caseReports.lookup(CASE_A).read(), 2n, 'the counter keeps rising');
-  assert.equal(l.casesUnderReview.size(), 1n, 'the case is listed once, not once per report');
-});
-
-test('9. the subject secret never appears in public state', () => {
-  const c = setup();
-  const r = file(c, c.state, c.priv, CASE_A, c.registry.pathFor(CASE_A));
-
-  const publicDump = JSON.stringify(ledger(r.state), (_k, v) =>
-    v instanceof Uint8Array ? toHex(v) : typeof v === 'bigint' ? v.toString() : v,
-  );
-
-  assert.ok(
-    !publicDump.includes(toHex(SOFIA_SECRET)),
-    'the secret must not be recoverable from the ledger',
-  );
-  assert.equal(r.priv.subjectSecret, SOFIA_SECRET, 'it stays in private state');
 });

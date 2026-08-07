@@ -6,8 +6,10 @@
   "description": "Amparo - Compact circuits for a private whistleblowing channel (Midnight Hackathon BA).",
   "license": "Apache-2.0",
   "scripts": {
-    "compile": "compact compile src/case_admission.compact src/managed/case_admission",
-    "compile:fast": "compact compile --skip-zk src/case_admission.compact src/managed/case_admission",
+    "compile": "npm run compile:cases && npm run compile:filing",
+    "compile:cases": "compact compile src/case_admission.compact src/managed/case_admission",
+    "compile:cases:fast": "compact compile --skip-zk src/case_admission.compact src/managed/case_admission",
+    "compile:fast": "npm run compile:cases:fast && npm run compile:filing:fast",
     "compile:filing": "compact compile src/filing_registry.compact src/managed/filing_registry",
     "compile:filing:fast": "compact compile --skip-zk src/filing_registry.compact src/managed/filing_registry",
     "test": "tsx --test \"src/**/*.test.ts\"",
