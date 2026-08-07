@@ -1,12 +1,10 @@
-// compiled-contract.ts - binds each compiled contract to its witness
+// compiled-contract.ts - binds the compiled contract to its witness
 // implementations and to its on-disk zero-knowledge assets.
 //
 // This is the one module that imports from `src/managed/`, so everything else
-// stays independent of the compiler output layout. Both contracts are imported
-// here, which means every script needs both compiled: `npm run compile` builds
-// them together for exactly that reason.
+// stays independent of the compiler output layout.
 //
-// The contracts are not instantiated here. The contract layer expects a
+// The contract is not instantiated here. The contract layer expects a
 // descriptor - the contract CLASS plus its witnesses plus the path to its
 // compiled assets - and constructs it itself when it needs to run the
 // constructor or a circuit. Passing an already-constructed instance fails deep
@@ -18,60 +16,37 @@
 // it is the copy the contract layer itself resolves - taking it from anywhere
 // else risks pairing a descriptor with a consumer that came from a different
 // copy of the package.
-//
-// The two contracts' generated modules export the same names - `Contract`,
-// `ledger`, `pureCircuits` - so they are imported under namespaces and
-// re-exported with the contract in the name. An unqualified `ledger` that
-// silently decodes the wrong contract's state is the failure this avoids.
 
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import {
-  Contract as CaseAdmissionContract,
-  ledger as caseLedger,
-  pureCircuits as casePureCircuits,
-  type Ledger as CaseAdmissionLedger,
-} from '../managed/case_admission/contract/index.js';
-import {
-  Contract as FilingRegistryContract,
-  ledger as filingLedger,
-  pureCircuits as filingPureCircuits,
-  type Ledger as FilingRegistryLedger,
-} from '../managed/filing_registry/contract/index.js';
-import { witnesses as authorityWitnesses, type AuthorityPrivateState } from '../witnesses.js';
-import { witnesses as subjectWitnesses, type SubjectPrivateState } from '../filing-witnesses.js';
+  Contract,
+  ledger,
+  pureCircuits,
+  type Ledger as AmparoLedger,
+} from '../managed/amparo/contract/index.js';
+import { witnesses, type AmparoPrivateState } from '../amparo-witnesses.js';
 import { loadConfig, type MidnightConfig } from './config.js';
-import {
-  CASE_ADMISSION,
-  FILING_REGISTRY,
-  contractDir,
-  type ContractSpec,
-} from './contracts.js';
+import { AMPARO, contractDir, type ContractSpec } from './contracts.js';
 
-export { caseLedger, casePureCircuits, filingLedger, filingPureCircuits };
-export type { AuthorityPrivateState, SubjectPrivateState };
+export { ledger, pureCircuits };
+export type { AmparoPrivateState };
 // Re-exported so nothing outside this module has to reach into `src/managed/`,
 // which is the invariant that keeps the compiler output layout in one place.
-export type { CaseAdmissionLedger, FilingRegistryLedger };
+export type { AmparoLedger };
 
-/** Descriptor for `case_admission`: class, witnesses, and where its ZK assets live. */
+/**
+ * The contract descriptor: class, witnesses, and where its ZK assets live.
+ *
+ * `spec` carries the private-state namespace, so reporter flows pass the one
+ * `forSubject` produced. It defaults to the authority namespace because that is
+ * the single-identity case; every reporter call site passes its own.
+ */
 export function amparoContract(
   config: MidnightConfig = loadConfig(),
-  spec: ContractSpec = CASE_ADMISSION,
+  spec: ContractSpec = AMPARO,
 ) {
-  return CompiledContract.make(spec.name, CaseAdmissionContract).pipe(
-    CompiledContract.withWitnesses(authorityWitnesses),
-    CompiledContract.withCompiledFileAssets(contractDir(spec, config)),
-  );
-}
-
-/** Descriptor for `filing_registry`. Its witness is the reporter's own secret,
- *  so the caller passes the spec whose private-state namespace holds it. */
-export function filingContract(
-  config: MidnightConfig = loadConfig(),
-  spec: ContractSpec = FILING_REGISTRY,
-) {
-  return CompiledContract.make(spec.name, FilingRegistryContract).pipe(
-    CompiledContract.withWitnesses(subjectWitnesses),
+  return CompiledContract.make(spec.name, Contract).pipe(
+    CompiledContract.withWitnesses(witnesses),
     CompiledContract.withCompiledFileAssets(contractDir(spec, config)),
   );
 }
@@ -91,7 +66,7 @@ export function authorityCommitment(secret: Uint8Array): Uint8Array {
   if (secret.length !== 32) {
     throw new Error(`authority secret must be 32 bytes long (got ${secret.length})`);
   }
-  return casePureCircuits.authorityDigest(secret);
+  return pureCircuits.authorityDigest(secret);
 }
 
 /**
@@ -110,5 +85,5 @@ export function filingNullifier(secret: Uint8Array, caseCommitment: Uint8Array):
   if (caseCommitment.length !== 32) {
     throw new Error(`case commitment must be 32 bytes long (got ${caseCommitment.length})`);
   }
-  return filingPureCircuits.filingNullifierOf(secret, caseCommitment);
+  return pureCircuits.filingNullifierOf(secret, caseCommitment);
 }

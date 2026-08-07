@@ -1,5 +1,5 @@
-// reporter-journey.test.ts — the product journey, end to end, across BOTH
-// contracts. This is the demo script as an executable test.
+// reporter-journey.test.ts — the product journey, end to end. This is the demo
+// script as an executable test.
 //
 //   1. The oversight authority admits three cases to the public registry.
 //   2. Sofía files a report against each one. Nobody learns who she is.
@@ -9,6 +9,11 @@
 //      revealing which, when, or who she is. The verifier sees a boolean.
 //   6. The verifier re-checks the anchor off-chain, as a second source, and
 //      reaches the same verdict the circuit already enforced.
+//   7. A case admitted AFTER all of that is filable immediately.
+//
+// Step 7 used to be the opposite: it asserted that a late case could NEVER be
+// filed against, because the filing contract froze the admitted root at
+// construction. That was the cost of two contracts, and it is gone.
 //
 // Runs in the simulator: no proof generation, no network, no proof server.
 
@@ -20,21 +25,16 @@ import {
   dummyContractAddress,
 } from '@midnight-ntwrk/compact-runtime';
 import {
-  Contract as CaseAdmission,
-  ledger as caseLedger,
-  pureCircuits as casePure,
-} from '../../src/managed/case_admission/contract/index.js';
+  Contract,
+  ledger,
+  pureCircuits,
+} from '../../src/managed/amparo/contract/index.js';
 import {
-  Contract as FilingRegistry,
-  ledger as filingLedger,
-  pureCircuits as filingPure,
-} from '../../src/managed/filing_registry/contract/index.js';
-import { witnesses as authorityWitnesses } from '../../src/witnesses.js';
-import {
-  witnesses as subjectWitnesses,
-  createSubjectPrivateState,
-} from '../../src/filing-witnesses.js';
-import { createMerkleMirror, toHex, type LeafPath } from '../../src/merkle-mirror.js';
+  witnesses,
+  createAuthorityState,
+  createSubjectState,
+} from '../../src/amparo-witnesses.js';
+import { type LeafPath } from '../../src/merkle-mirror.js';
 import { assertClaimedRootIsOnChain } from '../../src/verifier.js';
 
 const COIN_PK = '00'.repeat(32);
@@ -51,119 +51,84 @@ const NEIGHBOUR_2 = b32(0x70);
 const DUMPING = b32(0x11);
 const CASE_2 = b32(0x22);
 const CASE_3 = b32(0x33);
+const LATE_CASE = b32(0x44);
 
 const COURT = b32(0x01);
 const REVIEW_THRESHOLD = 3n;
 
-test('the full reporter journey, across both contracts', () => {
-  // ─── 1. The authority admits three cases ──────────────────────────────────
-  // One shared mirror implementation for both trees. R1a's case-registry.ts
-  // cannot produce membership paths, and the filing registry needs them.
-  const registry = createMerkleMirror();
-  const admission = new CaseAdmission(authorityWitnesses);
+test('the full reporter journey', () => {
+  const contract = new Contract(witnesses);
   const addr = dummyContractAddress();
 
-  let caseState = admission.initialState(
-    createConstructorContext({ authoritySecret: AUTHORITY }, COIN_PK),
-    casePure.authorityDigest(AUTHORITY),
-    registry.root(),
-  ).currentContractState.data;
-
-  for (const kase of [DUMPING, CASE_2, CASE_3]) {
-    const newRoot = registry.insert(kase);
-    const ctx = createCircuitContext(addr, COIN_PK, caseState, { authoritySecret: AUTHORITY });
-    caseState = admission.circuits.admitCase(ctx, kase, newRoot).context.currentQueryContext.state;
-  }
-
-  assert.equal(caseLedger(caseState).admittedCount, 3n, 'three cases admitted');
-
-  // ─── 2. The filing registry is deployed against that registry ─────────────
-  // NOTE: the root is passed at construction and never updated. The two
-  // contracts are not merged yet, so a case admitted AFTER this point cannot
-  // be filed against — pinned down at the end of this test.
-  const filing = new FilingRegistry(subjectWitnesses);
-  let state = filing.initialState(
-    createConstructorContext(createSubjectPrivateState(SOFIA), COIN_PK),
-    registry.root(),
+  let state = contract.initialState(
+    createConstructorContext(createAuthorityState(AUTHORITY), COIN_PK),
+    pureCircuits.authorityDigest(AUTHORITY),
     REVIEW_THRESHOLD,
   ).currentContractState.data;
 
-  const file = (secret: Uint8Array, kase: Uint8Array) => {
-    const ctx = createCircuitContext(addr, COIN_PK, state, createSubjectPrivateState(secret));
-    state = filing.circuits
-      .registerFiling(ctx, kase, registry.pathFor(kase) as unknown as LeafPath)
-      .context.currentQueryContext.state;
+  const admit = (kase: Uint8Array) => {
+    const ctx = createCircuitContext(addr, COIN_PK, state, createAuthorityState(AUTHORITY));
+    state = contract.circuits.admitCase(ctx, kase).context.currentQueryContext.state;
   };
 
-  // ─── 3. Sofía files against all three cases ───────────────────────────────
-  file(SOFIA, DUMPING);
-  file(SOFIA, CASE_2);
-  file(SOFIA, CASE_3);
+  const file = (secret: Uint8Array, kase: Uint8Array) => {
+    const ctx = createCircuitContext(addr, COIN_PK, state, createSubjectState(secret));
+    state = contract.circuits.registerFiling(ctx, kase).context.currentQueryContext.state;
+  };
 
-  // Nothing about her is legible on chain.
-  const published = [...filingLedger(state).spentFilingNullifiers].map(toHex);
-  assert.equal(published.length, 3, 'three filings recorded');
-  assert.ok(!published.includes(toHex(SOFIA)), 'her secret is not on chain');
+  // ─── 1. The authority admits three cases ──────────────────────────────────
+  for (const kase of [DUMPING, CASE_2, CASE_3]) admit(kase);
+  assert.equal(ledger(state).admittedCount, 3n, 'three cases admitted');
 
-  // ─── 4. Two neighbours report the same dumping case ───────────────────────
-  assert.equal(
-    filingLedger(state).casesUnderReview.member(DUMPING),
-    false,
-    'one report is not enough to flag a site',
-  );
+  // ─── 2. Sofía files against each one ──────────────────────────────────────
+  for (const kase of [DUMPING, CASE_2, CASE_3]) file(SOFIA, kase);
 
+  // Nothing on chain says it was her, or that it was one person at all.
+  const afterSofia = ledger(state);
+  assert.equal(afterSofia.spentFilingNullifiers.size(), 3n);
+  assert.equal(afterSofia.caseReports.lookup(DUMPING).read(), 1n);
+  assert.equal(afterSofia.casesUnderReview.member(DUMPING), false, 'one report is not enough');
+
+  // ─── 3 & 4. Two neighbours corroborate, and the flag flips ────────────────
   file(NEIGHBOUR_1, DUMPING);
+  assert.equal(ledger(state).casesUnderReview.member(DUMPING), false, 'two is still below');
+
   file(NEIGHBOUR_2, DUMPING);
+  const flagged = ledger(state);
+  assert.equal(flagged.caseReports.lookup(DUMPING).read(), 3n);
+  assert.equal(flagged.casesUnderReview.member(DUMPING), true, 'UNDER REVIEW, in public');
+  assert.equal(flagged.casesUnderReview.member(CASE_2), false, 'and only that case');
 
-  const l = filingLedger(state);
-  assert.equal(l.caseReports.lookup(DUMPING).read(), 3n, 'three independent reports');
-  assert.equal(
-    l.casesUnderReview.member(DUMPING),
-    true,
-    'the site is now publicly UNDER REVIEW — because reports converged, not because anyone was named',
-  );
-
-  // ─── 5. Sofía proves three prior filings to the court ─────────────────────
-  const tree = filingLedger(state).filingNullifierTree;
-  const paths = [DUMPING, CASE_2, CASE_3].map((c) => {
-    const p = tree.findPathForLeaf(filingPure.filingNullifierOf(SOFIA, c));
-    if (!p) throw new Error('no filing on record');
-    return p as unknown as LeafPath;
-  });
+  // ─── 5. Sofía presents the credential ─────────────────────────────────────
+  const tree = ledger(state).filingNullifierTree;
   const claimedRoot = tree.root();
-
-  const ctx = createCircuitContext(addr, COIN_PK, state, createSubjectPrivateState(SOFIA));
-  const presented = filing.circuits.proveRepeatFilings(
-    ctx, [DUMPING, CASE_2, CASE_3], paths as never, claimedRoot, COURT,
+  const paths = [DUMPING, CASE_2, CASE_3].map(
+    (kase) =>
+      tree.findPathForLeaf(
+        pureCircuits.filingNullifierOf(SOFIA, kase),
+      ) as unknown as LeafPath,
   );
 
-  assert.equal(presented.result, true, 'the court receives TRUE and nothing else');
+  const presentCtx = createCircuitContext(addr, COIN_PK, state, createSubjectState(SOFIA));
+  const presented = contract.circuits.proveRepeatFilings(
+    presentCtx,
+    [DUMPING, CASE_2, CASE_3],
+    paths as never,
+    claimedRoot,
+    COURT,
+  );
   state = presented.context.currentQueryContext.state;
 
-  // ─── 6. The verifier does its off-chain half ──────────────────────────────
-  assertClaimedRootIsOnChain(filingLedger(state), claimedRoot);
+  // The verifier sees a boolean. Not which cases, not when, not who.
+  assert.equal(presented.result, true);
+  assert.equal(ledger(state).spentPresentationNullifiers.size(), 1n, 'the context is spent');
 
-  // What the court can see afterwards: one spent presentation nullifier. Not
-  // her identity, not which cases she filed, not how many she really has.
-  const presentations = [...filingLedger(state).spentPresentationNullifiers].map(toHex);
-  assert.equal(presentations.length, 1);
-  assert.ok(!presentations.includes(toHex(SOFIA)));
-  for (const c of [DUMPING, CASE_2, CASE_3]) {
-    assert.ok(!presentations.includes(toHex(c)), 'the cases she used are not revealed');
-  }
+  // ─── 6. The verifier re-checks the anchor off-chain ───────────────────────
+  assertClaimedRootIsOnChain(ledger(state), claimedRoot);
 
-  // ─── The integration gap, pinned ──────────────────────────────────────────
-  // A case admitted after the filing registry was deployed cannot be filed
-  // against, because its root is frozen at construction. This is the reason
-  // the two contracts still need to be merged into one.
-  const LATE_CASE = b32(0x44);
-  const lateRoot = registry.insert(LATE_CASE);
-  const lateCtx = createCircuitContext(addr, COIN_PK, caseState, { authoritySecret: AUTHORITY });
-  admission.circuits.admitCase(lateCtx, LATE_CASE, lateRoot);
-
-  assert.throws(
-    () => file(SOFIA, LATE_CASE),
-    /not in the admitted registry/i,
-    'KNOWN GAP: the filing registry cannot see cases admitted after its deployment',
-  );
+  // ─── 7. A case admitted after everything is filable immediately ───────────
+  admit(LATE_CASE);
+  file(SOFIA, LATE_CASE);
+  assert.equal(ledger(state).caseReports.lookup(LATE_CASE).read(), 1n);
+  assert.equal(ledger(state).admittedCount, 4n);
 });

@@ -25,13 +25,15 @@ are where we check that it is.
 
 They are written as attacks, not as happy paths phrased negatively:
 
-- `filing_registry` test 8 — a subject with **zero filings on chain** tries to
-  produce a credential, first with a fabricated private state, then with Merkle
-  paths into a tree they built themselves.
-- `filing_registry` test 10 — a subject presents someone else's filings.
-- `filing_registry` test 3 — a filing against a case the authority never
-  admitted.
-- `case_admission` test 3 — an impostor secret tries to admit a case.
+- `amparo` test 10 — a reporter with **zero filings on chain** tries to produce
+  a credential, first by finding there is no path to build, then with Merkle
+  paths into a tree they built themselves. `checkRoot` rejects it in-circuit.
+- `amparo` test 12 — a reporter presents someone else's filings.
+- `amparo` test 16 — a prover whose witness answers with a **different secret on
+  each read**. Every other case assumes an honest witness, which is an
+  assumption about the attacker; this one drops it.
+- `amparo` test 6 — a filing against a case the authority never admitted.
+- `amparo` test 3 — an impostor secret tries to admit a case.
 
 If one of these ever goes green in the wrong direction, the product claim is
 gone, not just a feature.
@@ -41,14 +43,15 @@ gone, not just a feature.
 Two limitations are real and are encoded as **passing tests that assert the
 gap**, so they cannot quietly turn into claims we have not earned:
 
-- `filing_registry` test 13 — `subjectSecret` is unanchored, so the public
-  per-case counter counts distinct **secrets**, not distinct **people**. One
-  actor with three invented secrets trips the under-review flag. Anchoring
-  identity is the next step.
-- `e2e/reporter-journey` — the two contracts are not merged yet, so
-  `filing_registry` receives the admitted-case root at construction and never
-  updates it. A case admitted *after* deployment cannot be filed against. The
-  journey test pins this down.
+- `amparo` test 18 — `subjectSecret` is unanchored, so the public per-case
+  counter counts distinct **secrets**, not distinct **people**. One actor with
+  three invented secrets trips the under-review flag. Anchoring identity is the
+  next step, and it is the one gap that still limits what output B can claim.
+
+The second gap on this list is gone. It read: the two contracts are not merged,
+so the filing side freezes the admitted root at construction and a case admitted
+afterwards can never be filed against. `amparo` test 21 and step 7 of the
+journey now assert the opposite — a late case is filable immediately.
 
 ## Not covered
 

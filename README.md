@@ -12,20 +12,19 @@ times** - without saying how many, which ones, or who.
 | Path | What it is |
 |---|---|
 | `contracts/` | Compact circuits and their TypeScript layer |
-| `contracts/src/case_admission.compact` | Case admission primitive |
-| `contracts/src/filing_registry.compact` | Filing registry: threshold credential + public case alarm |
-| `contracts/src/case-registry.ts` | Off-chain admitted-case mirror + alignment guard |
-| `contracts/src/merkle-mirror.ts` | Merkle mirror the client rebuilds to produce paths |
+| `contracts/src/amparo.compact` | The contract: case admission, filings, threshold credential, public case alarm |
+| `contracts/src/amparo-witnesses.ts` | Private inputs the circuits read |
+| `contracts/src/merkle-mirror.ts` | Merkle mirror, used by the adversarial tests to build a forged tree |
 | `contracts/src/verifier.ts` | Off-chain second source for a presented root |
-| `contracts/src/witnesses.ts`, `filing-witnesses.ts` | Private inputs the circuits read |
 | `contracts/src/midnight/` | Network configuration, wallet, providers, contract descriptors |
 | `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present |
 | `contracts/src/*.test.ts` | Simulator tests (no proof server) |
 | `contracts/test/` | End-to-end product journey and the test strategy |
 | `contracts/docker-compose.midnight.yml` | Local standalone network |
 
-Both contracts have a deployment path. Both have been exercised against a running
-chain with real proofs, not only in the simulator.
+One contract. It has been exercised against a running chain with real proofs,
+not only in the simulator: admission, filing, corroboration crossing the review
+threshold, and a credential presented and then refused on replay.
 
 ## Toolchain
 
@@ -77,7 +76,6 @@ The filing registry is constructed with the admitted root, so it is deployed
 
 ```bash
 npm run admit-case -- <64 hex>                     # once per demo case
-npm run deploy-filing                              # threshold 3; freezes the root
 npm run file-report -- <64 hex> --subject sofia    # one report, one reporter
 npm run prove-credential -- --subject sofia --context "ministry-of-labour"
 ```
@@ -94,22 +92,23 @@ The threshold comes from the deployment record rather than the chain.
 `reviewThreshold` is `sealed`, and a sealed field is absent from the generated
 `Ledger` projection: the circuit reads it, no client can.
 
-### The two contracts are not yet integrated, and it shows here
+### There used to be two contracts, and it showed
 
-`filing_registry` receives the admitted root as a constructor argument and the
-field is written once. Deploying it **freezes** whatever `admittedCases.root()`
-is at that moment, so a case admitted afterwards can never be filed against: its
-Merkle path reaches the new root and the circuit compares against the frozen one.
+Admission and filings were separate contracts, so the filing side received the
+admitted root as a constructor argument and froze it. A case admitted after
+deployment could never be filed against, and the error said `Case is not in the
+admitted registry` - which reads like the case is unknown when it was merely
+newer. Order of operations became load-bearing: admit first, deploy second.
 
-`file-report` checks for this before building a proof and says so in those words,
-because the circuit's own error - `Case is not in the admitted registry` - reads
-like the case is unknown when it is merely newer. Redeploying the filing registry
-re-freezes the current root.
+They are one contract now. `registerFiling` checks the live registry, so a case
+admitted one block ago is filable immediately. Nothing is frozen, so nothing
+goes stale.
 
-This disappears when the two contracts become one, where the circuit can check
-the path against the live tree with `admittedCases.checkRoot(...)` instead of
-against a value copied at construction time. Until then: admit first, deploy
-second.
+The merge also removed the Merkle path `registerFiling` used to take. The case
+is necessarily disclosed - it is the key of the public counter - so a Set lookup
+on an already-public value proves membership exactly, without 40 witness
+variables, a client-side tree fetch, and a `disclose` of the path's root that
+leaked which root the reporter had synced to.
 
 Configuration is entirely environmental, with defaults pointing at the local
 network - copy `contracts/.env.example` to `contracts/.env` only when you need to
@@ -162,8 +161,10 @@ critical path, not the morning of.
   `MerkleTree.checkRoot()` accepts only the current root, so every admission
   would invalidate the inclusion path of every already admitted case. The
   historic ADT accepts past roots.
-- **`admittedRoot` is a display-only mirror.** Nothing verifies against it.
-  Membership always goes through `admittedCases.checkRoot(...)`.
+- **A sealed ledger field is invisible to clients.** `reviewThreshold` is
+  `sealed`, so the compiler forbids rewriting it - and it is absent from the
+  generated `Ledger` projection entirely. The circuit reads it; no UI can.
+  Whatever displays it has to carry it from the deployment record.
 - **The WebAssembly packages must resolve to exactly one copy each.**
   `@midnight-ntwrk/ledger-v8` and `@midnight-ntwrk/onchain-runtime-v3` are pinned
   and overridden in `contracts/package.json` for that reason. Each carries its

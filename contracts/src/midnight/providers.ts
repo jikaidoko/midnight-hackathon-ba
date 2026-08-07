@@ -38,7 +38,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync 
 import { createHash } from 'node:crypto';
 import { loadConfig, PKG_ROOT, type MidnightConfig } from './config.js';
 import { zkConfigProvider } from './zk.js';
-import { CASE_ADMISSION, type AnyCircuitId, type ContractSpec } from './contracts.js';
+import { AMPARO, type AnyCircuitId, type ContractSpec } from './contracts.js';
 
 /**
  * Directory name of the local private-state database. Must stay in sync with the
@@ -454,13 +454,13 @@ export type AmparoProviders = MidnightProviders<AnyCircuitId, string, unknown>;
  * `spec` decides one thing only: which contract's keys the ZK and proof
  * providers read. Everything else - wallet, indexer, private-state store - is
  * shared, and the private-state NAMESPACE is chosen per call by the contract
- * layer rather than here, so one provider set can serve both contracts as long
- * as it was built for the one whose circuit is about to be proved.
+ * layer rather than here, which is what lets one provider set serve both the
+ * authority and every reporter.
  */
 export async function buildProviders(
   ctx: WalletCtx,
   config: MidnightConfig = loadConfig(),
-  spec: ContractSpec = CASE_ADMISSION,
+  spec: ContractSpec = AMPARO,
 ): Promise<AmparoProviders> {
   const state = await waitForSynced(ctx);
   const walletProvider = makeWalletProvider(ctx, state);

@@ -1,5 +1,5 @@
-// derived-state.ts - the view a reporter's UI needs, computed from both
-// contracts' public state plus the reporter's own secret.
+// derived-state.ts - the view a reporter's UI needs, computed from the
+// contract's public state plus the reporter's own secret.
 //
 // The scripts read state one shot at a time, after a transaction they just sent.
 // A UI cannot work that way: it has to know, before offering a button, whether
@@ -8,7 +8,6 @@
 //
 //   have I already filed against this case?   nullifier derived from MY secret
 //   can I present a credential?               how many of MY nullifiers are on chain
-//   is this case under review?                public, but paired with the above
 //
 // That is the shape of the pattern: public ledger state is not the view. The
 // view is public state joined with a private value, and the join happens on the
@@ -18,15 +17,15 @@
 // thin wrapper over it. That split is deliberate: the interesting logic is then
 // testable in the simulator with no network, no wallet and no proof server,
 // which is the only way it gets tested at all during a hackathon.
+//
+// This got SIMPLER when the two contracts became one. It used to take both
+// contracts' state and expose a `registryDiverged` flag, because the filing side
+// froze the admitted root at construction and a later admission made every case
+// unfilable. There is one contract and no frozen root, so there is one stream
+// and no divergence to report.
 
-import { combineLatest, map, type Observable } from 'rxjs';
-import {
-  caseLedger,
-  filingLedger,
-  filingNullifier,
-  type CaseAdmissionLedger,
-  type FilingRegistryLedger,
-} from './compiled-contract.js';
+import { map, type Observable } from 'rxjs';
+import { ledger, filingNullifier, type AmparoLedger } from './compiled-contract.js';
 
 /** One admitted case, as this particular reporter sees it. */
 export interface CaseView {
@@ -38,7 +37,7 @@ export interface CaseView {
   readonly underReview: boolean;
   /** Private to this reporter: their nullifier for this case is on chain. */
   readonly hasFiled: boolean;
-  /** Filing now would be accepted: admitted, not already filed, roots agree. */
+  /** Filing now would be accepted: admitted, and not already filed by them. */
   readonly canFile: boolean;
 }
 
@@ -48,16 +47,8 @@ export interface ReporterView {
   readonly myFilingCount: number;
   readonly canPresentCredential: boolean;
   readonly reviewThreshold: bigint;
-  /** Root frozen into the filing registry at construction. */
-  readonly admittedRootFrozen: bigint;
-  /** Root the admission registry has right now. */
-  readonly admittedRootLive: bigint;
-  /**
-   * The two have diverged, so no case can be filed against until the filing
-   * registry is redeployed. The UI has to say this rather than let every filing
-   * fail with "Case is not in the admitted registry".
-   */
-  readonly registryDiverged: boolean;
+  /** Cases the authority has admitted, in total. */
+  readonly admittedCount: bigint;
 }
 
 /** Filings a credential needs. Matches the arity of `proveRepeatFilings`. */
@@ -68,7 +59,7 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * Joins both contracts' public state with one reporter's secret.
+ * Joins the contract's public state with one reporter's secret.
  *
  * `threshold` is passed in because it cannot be read: `reviewThreshold` is a
  * `sealed` ledger field and sealed fields are absent from the generated Ledger
@@ -80,34 +71,29 @@ function toHex(bytes: Uint8Array): string {
  * credential button that produces a failing proof.
  */
 export function deriveReporterView(
-  caseState: CaseAdmissionLedger,
-  filingState: FilingRegistryLedger,
+  state: AmparoLedger,
   secret: Uint8Array,
   threshold: bigint,
 ): ReporterView {
-  const admittedRootLive = caseState.admittedCases.root().field;
-  const admittedRootFrozen = filingState.admittedRoot.field;
-  const registryDiverged = admittedRootLive !== admittedRootFrozen;
-
   const cases: CaseView[] = [];
   let myFilingCount = 0;
 
-  // `admittedIndex` is the enumerable companion to the Merkle tree, which is
-  // not iterable. Iterating the ADT directly is also what keeps this honest:
-  // `JSON.stringify` over a ledger ADT yields `{}` even when it is populated.
-  for (const caseCommitment of caseState.admittedIndex) {
+  // `admittedIndex` is the enumerable registry. Iterating the ADT directly is
+  // also what keeps this honest: `JSON.stringify` over a ledger ADT yields `{}`
+  // even when it is populated.
+  for (const caseCommitment of state.admittedIndex) {
     const nullifier = filingNullifier(secret, caseCommitment);
-    const hasFiled = filingState.spentFilingNullifiers.member(nullifier);
+    const hasFiled = state.spentFilingNullifiers.member(nullifier);
     if (hasFiled) myFilingCount++;
 
     cases.push({
       caseCommitment: toHex(caseCommitment),
-      reports: filingState.caseReports.member(caseCommitment)
-        ? filingState.caseReports.lookup(caseCommitment).read()
+      reports: state.caseReports.member(caseCommitment)
+        ? state.caseReports.lookup(caseCommitment).read()
         : 0n,
-      underReview: filingState.casesUnderReview.member(caseCommitment),
+      underReview: state.casesUnderReview.member(caseCommitment),
       hasFiled,
-      canFile: !hasFiled && !registryDiverged,
+      canFile: !hasFiled,
     });
   }
 
@@ -116,15 +102,12 @@ export function deriveReporterView(
     myFilingCount,
     canPresentCredential: myFilingCount >= CREDENTIAL_FILINGS,
     reviewThreshold: threshold,
-    admittedRootFrozen,
-    admittedRootLive,
-    registryDiverged,
+    admittedCount: state.admittedCount,
   };
 }
 
 export interface ReporterViewSources {
-  readonly caseAdmissionAddress: string;
-  readonly filingRegistryAddress: string;
+  readonly contractAddress: string;
   readonly secret: Uint8Array;
   readonly reviewThreshold: bigint;
 }
@@ -138,35 +121,20 @@ interface StateObservableProvider {
   };
 }
 
-/**
- * Live view: re-emits whenever either contract's state changes.
- *
- * Both streams are needed. A filing changes the filing registry; an admission
- * changes the admission registry and can silently make every case unfileable by
- * moving the root out from under the frozen one. Watching only the contract the
- * user is acting on would leave the interface confidently wrong.
- */
+/** Live view: re-emits whenever the contract's state changes. */
 export function reporterView$(
   providers: StateObservableProvider,
   sources: ReporterViewSources,
 ): Observable<ReporterView> {
-  const cases$ = providers.publicDataProvider.contractStateObservable(
-    sources.caseAdmissionAddress,
-    { type: 'latest' },
-  );
-  const filings$ = providers.publicDataProvider.contractStateObservable(
-    sources.filingRegistryAddress,
-    { type: 'latest' },
-  );
-
-  return combineLatest([cases$, filings$]).pipe(
-    map(([rawCases, rawFilings]) =>
-      deriveReporterView(
-        caseLedger(rawCases.data as never),
-        filingLedger(rawFilings.data as never),
-        sources.secret,
-        sources.reviewThreshold,
+  return providers.publicDataProvider
+    .contractStateObservable(sources.contractAddress, { type: 'latest' })
+    .pipe(
+      map((raw) =>
+        deriveReporterView(
+          ledger(raw.data as never),
+          sources.secret,
+          sources.reviewThreshold,
+        ),
       ),
-    ),
-  );
+    );
 }

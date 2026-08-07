@@ -32,12 +32,8 @@ import {
   waitForSynced,
   closeWallet,
 } from '../src/midnight/providers.js';
-import { FILING_REGISTRY, forSubject } from '../src/midnight/contracts.js';
-import {
-  filingContract,
-  filingLedger,
-  filingNullifier,
-} from '../src/midnight/compiled-contract.js';
+import { AMPARO, forSubject } from '../src/midnight/contracts.js';
+import { amparoContract, ledger, filingNullifier } from '../src/midnight/compiled-contract.js';
 import {
   subjectSecret,
   subjectLabel,
@@ -46,13 +42,13 @@ import {
   fromHex,
   toHex,
 } from '../src/midnight/subjects.js';
-import type { SubjectPrivateState } from '../src/filing-witnesses.js';
+import { createSubjectState } from '../src/amparo-witnesses.js';
 
 const config = loadConfig();
-const filingFile = resolve(PKG_ROOT, `deployment.filing.${config.networkId}.json`);
+const filingFile = resolve(PKG_ROOT, `deployment.${config.networkId}.json`);
 
 if (!existsSync(filingFile)) {
-  throw new Error(`No filing registry deployment at ${filingFile}. Run \`npm run deploy-filing\`.`);
+  throw new Error(`No filing registry deployment at ${filingFile}. Run \`npm run deploy\`.`);
 }
 const deployment = JSON.parse(readFileSync(filingFile, 'utf8')) as { contractAddress: string };
 
@@ -66,7 +62,7 @@ if (!contextName || contextName.startsWith('--')) {
 const context = Uint8Array.from(createHash('sha256').update(contextName).digest());
 
 const label = subjectLabel();
-const spec = forSubject(FILING_REGISTRY, label);
+const spec = forSubject(AMPARO, label);
 const secret = subjectSecret(label, config);
 
 const registry = deployment.contractAddress;
@@ -96,17 +92,17 @@ if (filed.length < 3) {
 const cases = filed.slice(0, 3).map((h) => fromHex(h, 'recorded case'));
 
 console.log(describe(config));
-console.log(`\nFiling registry: ${deployment.contractAddress}`);
+console.log(`\nContract: ${deployment.contractAddress}`);
 console.log(`Reporter:        ${label}`);
 console.log(`Verifier:        ${contextName}`);
 
 const ctx = await buildWallet(config);
 await waitForSynced(ctx);
-const providers = await buildProviders(ctx, config, FILING_REGISTRY);
+const providers = await buildProviders(ctx, config, AMPARO);
 
 const rawState = await providers.publicDataProvider.queryContractState(deployment.contractAddress);
 if (!rawState) throw new Error('Filing registry has no state on chain');
-const state = filingLedger(rawState.data);
+const state = ledger(rawState.data);
 
 // Rebuild each nullifier through the contract's own pure circuit, then read its
 // path out of the on-chain tree. A missing path means that filing is not on
@@ -127,11 +123,11 @@ const paths = cases.map((kase) => {
 console.log(`Claimed root:    ${claimedRoot.field.toString()}`);
 console.log(`Paths resolved:  ${paths.length}/3`);
 
-const privateState: SubjectPrivateState = { subjectSecret: secret };
+const privateState = createSubjectState(secret);
 
 const contract = await findDeployedContract(providers as never, {
   contractAddress: deployment.contractAddress,
-  compiledContract: filingContract(config, spec),
+  compiledContract: amparoContract(config, spec),
   privateStateId: spec.privateStateId,
   initialPrivateState: privateState,
 } as never);
