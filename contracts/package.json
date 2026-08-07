@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Amparo - Compact circuits for a private whistleblowing channel (Midnight Hackathon BA).",
+  "description": "Amparo - Compact circuits for a private reporting channel (Midnight Hackathon BA).",
   "license": "Apache-2.0",
   "scripts": {
     "compile": "compact compile src/amparo.compact src/managed/amparo",

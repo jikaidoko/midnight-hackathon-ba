@@ -1,4 +1,4 @@
-# Amparo - private whistleblowing channel
+# Amparo - private reporting channel
 
 Midnight Hackathon Buenos Aires, August 7-8 2026.
 
