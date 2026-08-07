@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check-wasm": "npm ls @midnight-ntwrk/ledger-v8 @midnight-ntwrk/onchain-runtime-v3",
+    "check-wasm": "node scripts/check-wasm.mjs",
     "copy-zk": "node scripts/copy-zk.mjs",
     "build:chain": "npm run copy-zk && npm run build"
   },
@@ -51,8 +51,9 @@
     "node_modules trees on purpose. An npm workspace would hoist them into one, which is the",
     "arrangement that reintroduces the duplicate in the first place.",
     "",
-    "Verify with: npm ls @midnight-ntwrk/ledger-v8 @midnight-ntwrk/onchain-runtime-v3",
-    "One version each. Neither the typecheck nor the tests can see this - they never build a",
-    "transaction."
+    "Verify with: npm run check-wasm. Not `npm ls`, which reads one tree and cannot see the",
+    "case that matters: the bundle draws from BOTH trees, so two trees each holding a single",
+    "version can still hold two DIFFERENT versions while every per-tree check reports success.",
+    "Neither the typecheck nor the tests can see any of it - they never build a transaction."
   ]
 }
