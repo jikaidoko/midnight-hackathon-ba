@@ -20,15 +20,20 @@
 // safe to leave running on a projector: every failure mode the other two share
 // belongs to machinery this one never touches.
 //
-// The page polls this process; this process holds ONE live subscription to the
-// chain. So the flag flipping on screen is the chain's own event arriving, not a
-// poll that happened to catch a changed number - the polling only carries the
-// last thing the subscription saw to the browser.
+// The page polls this process; this process subscribes to the chain and rebuilds
+// that subscription whenever it ends. So a counter moving on screen is a real
+// state change, and the browser's polling only carries the last thing the
+// subscription saw - it never decides what changed.
+//
+// The rebuilding is not incidental. The indexer stream ENDS on its own, and it
+// ends by completing rather than failing, which is why an earlier version of
+// this file froze permanently after any indexer hiccup while looking perfectly
+// healthy. See the subscription below.
 
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { retry, tap } from 'rxjs';
+import { repeat, retry, tap, timeout } from 'rxjs';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { loadConfig, PKG_ROOT } from '../src/midnight/config.js';
@@ -56,7 +61,37 @@ if (deployment.reviewThreshold === undefined) {
 }
 const reviewThreshold = BigInt(deployment.reviewThreshold);
 
-const port = Number(process.env.MN_LEDGER_VIEW_PORT ?? 8090);
+/**
+ * Reads a positive integer from the environment, tolerating absent, empty and
+ * non-numeric values.
+ *
+ * `Number('')` is 0, not NaN, and port 0 binds a RANDOM free port - so an empty
+ * `MN_LEDGER_VIEW_PORT` would start the view on a port nobody can guess while
+ * the banner printed it correctly. An unset variable and a typo both have to
+ * land on the default instead.
+ */
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const port = envInt('MN_LEDGER_VIEW_PORT', 8090);
+
+/**
+ * How long the view tolerates hearing NOTHING before it treats the stream as
+ * dead and rebuilds it. See the subscription below for why silence needs a
+ * deadline of its own on top of the reconnect.
+ */
+const HEARTBEAT_MS = envInt('MN_LEDGER_VIEW_HEARTBEAT_MS', 30_000);
+
+/**
+ * Pause before resubscribing. The observed failure ends the stream in about ten
+ * seconds, so with no delay a dead indexer would spin this into a reconnect
+ * loop; with one it settles into a poll the indexer can survive.
+ */
+const RECONNECT_MS = envInt('MN_LEDGER_VIEW_RECONNECT_MS', 2_000);
 
 // Address handling is network-scoped in the SDK, so this has to be set before
 // the provider is built rather than after.
@@ -68,42 +103,116 @@ const publicDataProvider = indexerPublicDataProvider(config.indexerUrl, config.i
 // The live snapshot
 // ---------------------------------------------------------------------------
 
+/** JSON.stringify cannot encode a bigint, and every count here is one. */
+const asJson = (value: unknown): string =>
+  JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+
 interface Snapshot {
   /** Null until the first emission: a contract deployed one block ago is normal. */
   view: PublicLedgerView | null;
-  /** Set when the subscription itself fails, so the page can say so. */
+  /** Set while the stream is failing, so the page can say so instead of lying. */
   error: string | null;
-  /** ISO time of the last emission, for the staleness indicator. */
+  /** ISO time the view last CHANGED. What "last update" on the page means. */
   updatedAt: string | null;
-  /** Emissions so far. A number that stops moving is the useful signal. */
+  /** Times the view changed. Chain events, not emissions - see below. */
   updates: number;
+  /** ISO time we last heard anything at all, including an unchanged re-read. */
+  checkedAt: string | null;
+  /** Times the stream was rebuilt. A number that climbs means a sick indexer. */
+  reconnects: number;
 }
 
-const snapshot: Snapshot = { view: null, error: null, updatedAt: null, updates: 0 };
+const snapshot: Snapshot = {
+  view: null,
+  error: null,
+  updatedAt: null,
+  updates: 0,
+  checkedAt: null,
+  reconnects: 0,
+};
 
-// An rxjs subscription is TERMINAL on error, so an `error` handler that only
-// records the failure leaves the stream dead: the page would serve the last
-// snapshot forever, moving nothing. `tap` records it so the page can say so,
-// `retry` reconnects. On a projector a view that stops silently is worse than
-// one that admits it is broken.
+// ── Why this pipeline is shaped like this ────────────────────────────────────
+//
+// MEASURED, not reasoned about, and the measurement overturned the obvious
+// diagnosis twice.
+//
+// The symptom: stop the indexer container, and the view freezes for good. No
+// error, no log line, and no recovery when the indexer comes back - proved by
+// filing a report that really landed on chain afterwards and watching the view
+// never see it. The page went on serving its last snapshot with total authority.
+//
+// First wrong diagnosis: "the error handler ends the stream". An rxjs
+// subscription is terminal on error, so that reasoning is sound - it is just not
+// what happens here. Adding `retry` changed nothing.
+//
+// Second wrong diagnosis: "a dead socket is indistinguishable from a quiet one,
+// so silence needs a deadline". Also sound - this stream emits only when state
+// CHANGES, not per block - and `timeout({ each })` does convert silence into a
+// TimeoutError, verified in isolation. It still changed nothing.
+//
+// What actually happens, from instrumenting next/error/complete directly:
+//
+//     +0.2s NEXT
+//     +10.0s COMPLETE
+//
+// The observable COMPLETES. It does not hang and it does not error, so there is
+// nothing for `timeout` to fire on and nothing for `retry` to catch: both only
+// ever see a stream that finished normally, and a finished stream is not a
+// failure by any definition either operator uses. `repeat` is the operator that
+// resubscribes after a completion, and it is the one that was missing.
+//
+// All three stay, because they cover three different endings:
+//
+//   repeat    completion  - the one actually observed here
+//   retry     error       - a bad address, a rejected query
+//   timeout   silence     - a socket that is open and mute, which neither of the
+//                           above would ever notice
+//
+// Every resubscribe re-emits current state, so this is also a poll of last
+// resort: the view cannot be staler than a reconnect cycle. Counting emissions
+// would then inflate `updates` with heartbeats and break the claim this view
+// makes about itself, which is why the handler below compares before counting -
+// an emission that decodes to the same view is LIVENESS, not a chain event.
 const subscription = publicView$({ publicDataProvider } as never, {
   contractAddress: deployment.contractAddress,
   reviewThreshold,
 })
   .pipe(
+    timeout({ each: HEARTBEAT_MS }),
     tap({
       error: (err: unknown) => {
-        snapshot.error = err instanceof Error ? err.message : String(err);
-        console.error('Subscription failed, retrying in 2s:', snapshot.error);
+        const message = err instanceof Error ? err.message : String(err);
+        // A timeout is an expected ending on a quiet chain, so it is not an
+        // error the PAGE should shout about - only a real failure is.
+        const silent = err instanceof Error && err.name === 'TimeoutError';
+        snapshot.error = silent ? null : message;
+        snapshot.reconnects += 1;
+        console.log(
+          silent
+            ? `Nothing heard for ${HEARTBEAT_MS / 1000}s; rebuilding the subscription.`
+            : `Subscription failed, reconnecting in ${RECONNECT_MS / 1000}s: ${message}`,
+        );
+      },
+      complete: () => {
+        // The normal path. Not an error, and not worth a line per cycle.
+        snapshot.reconnects += 1;
       },
     }),
-    retry({ delay: 2000 }),
+    retry({ delay: RECONNECT_MS }),
+    repeat({ delay: RECONNECT_MS }),
   )
   .subscribe({
     next: (view) => {
+      const now = new Date().toISOString();
+      const changed = asJson(view) !== asJson(snapshot.view);
+
       snapshot.view = view;
       snapshot.error = null;
-      snapshot.updatedAt = new Date().toISOString();
+      snapshot.checkedAt = now;
+
+      if (!changed) return;
+
+      snapshot.updatedAt = now;
       snapshot.updates += 1;
       console.log(
         `[${new Date().toLocaleTimeString()}] ${view.admittedCount} admitted · ` +
@@ -115,10 +224,6 @@ const subscription = publicView$({ publicDataProvider } as never, {
 // ---------------------------------------------------------------------------
 // Serving
 // ---------------------------------------------------------------------------
-
-/** JSON.stringify cannot encode a bigint, and every count here is one. */
-const asJson = (value: unknown): string =>
-  JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
 
 const PAGE = /* html */ `<!doctype html>
 <html lang="en">
@@ -145,6 +250,9 @@ const PAGE = /* html */ `<!doctype html>
   th { text-align: left; font-size: .7rem; letter-spacing: .13em; text-transform: uppercase;
        color: #6E6C66; font-weight: 400; padding: 0 .8rem .7rem 0; border-bottom: 1px solid #45443F; }
   td { padding: .85rem .8rem .85rem 0; border-bottom: 1px solid #35342F; vertical-align: middle; }
+  /* The count and its "(n to review)" tail must stay on one line: wrapped, the
+     row grows and the table stops reading as a column of statuses. */
+  td.count { white-space: nowrap; }
   tr.review td { background: rgba(239,159,39,.07); }
   .case { color: #8F8D85; }
   tr.review .case { color: #EAE8E0; }
@@ -176,6 +284,11 @@ const PAGE = /* html */ `<!doctype html>
 <script>
 const flagged = new Set();   // cases already seen under review, so a flip flashes once
 let first = true;
+// Which chain update is currently on screen. The rows are rebuilt ONLY when this
+// moves, and that is what lets the flip animation finish: at one poll per second
+// an unconditional re-render replaced the <tbody> a third of the way into a
+// 2.3s flash, so the demo's centrepiece was cut off every time it fired.
+let rendered = -1;
 
 function render(s) {
   const sub = document.getElementById('sub');
@@ -196,6 +309,8 @@ function render(s) {
   }
   const v = s.view;
 
+  if (s.updates !== rendered) {
+  rendered = s.updates;
   document.getElementById('totals').innerHTML = [
     ['Cases admitted', v.admittedCount, false],
     ['Reports filed', v.totalReports, false],
@@ -214,7 +329,7 @@ function render(s) {
     if (c.underReview) flagged.add(c.caseCommitment);
     return '<tr class="' + (c.underReview ? 'review ' : '') + (isFlip ? 'flip' : '') + '">' +
       '<td class="case">' + c.caseCommitment.slice(0, 16) + '&hellip;</td>' +
-      '<td><span class="bar"><i style="width:' + pct + '%"></i></span>' + reports +
+      '<td class="count"><span class="bar"><i style="width:' + pct + '%"></i></span>' + reports +
         (c.underReview ? '' : ' <span style="color:#55534E">(' + c.reportsToReview + ' to review)</span>') +
       '</td>' +
       '<td><span class="status ' + (c.underReview ? 'review' : 'open') + '">' +
@@ -222,12 +337,23 @@ function render(s) {
     '</tr>';
   }).join('');
   first = false;
+  }
 
-  const age = s.updatedAt ? (Date.now() - new Date(s.updatedAt).getTime()) / 1000 : null;
+  // Liveness comes from checkedAt, NOT from updatedAt. A chain nobody is filing
+  // against is quiet on purpose, so "no change for 5 minutes" says nothing about
+  // health - whereas "we have not HEARD anything" is the actual symptom of the
+  // dead subscription this page used to hide. Stale after two and a half
+  // heartbeats: one missed rebuild is a slow indexer, three is a broken one.
+  const secs = function (iso) { return iso ? (Date.now() - new Date(iso).getTime()) / 1000 : null; };
+  const since = secs(s.updatedAt), heard = secs(s.checkedAt);
+  const stale = heard === null || heard > (s.meta.heartbeatMs / 1000) * 2.5;
+  const ago = function (n) { return n === null ? 'never' : n < 2 ? 'just now' : Math.round(n) + 's ago'; };
+
   document.getElementById('foot').innerHTML =
-    '<span class="dot' + (age !== null && age > 90 ? ' stale' : '') + '"></span>' +
-    s.updates + ' chain updates · last ' +
-    (age === null ? 'never' : age < 2 ? 'just now' : Math.round(age) + 's ago') +
+    '<span class="dot' + (stale ? ' stale' : '') + '"></span>' +
+    s.updates + ' chain updates · last change ' + ago(since) +
+    ' · checked ' + ago(heard) +
+    (s.reconnects ? ' · ' + s.reconnects + ' reconnects' : '') +
     ' · nothing on this page identifies a reporter';
 }
 
@@ -258,6 +384,9 @@ const server = createServer((req, res) => {
         meta: {
           network: config.networkId,
           contractAddress: deployment.contractAddress,
+          // The page derives its staleness threshold from this rather than
+          // hardcoding one that a changed heartbeat would silently invalidate.
+          heartbeatMs: HEARTBEAT_MS,
         },
       }),
     );
@@ -271,6 +400,21 @@ const server = createServer((req, res) => {
 // interface, so a view whose banner promises 127.0.0.1 was in fact reachable
 // from the whole venue wifi - and this is the one process here meant to be left
 // running unattended.
+// An unhandled EADDRINUSE exits with a stack trace that buries the one useful
+// fact. The usual cause is the previous run of this same script still holding
+// the port, which is exactly the situation someone is in five minutes before a
+// demo, so it gets a sentence rather than a trace.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `Port ${port} is already in use - most likely an earlier \`npm run ledger-view\`.\n` +
+        `Stop it, or pick another: MN_LEDGER_VIEW_PORT=9000 npm run ledger-view`,
+    );
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(port, '127.0.0.1', () => {
   // Only the two services this view actually uses. `describe(config)` also
   // lists the node and the proof server, three lines above a banner that says

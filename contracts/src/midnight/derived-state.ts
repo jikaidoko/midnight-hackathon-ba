@@ -75,6 +75,21 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
+ * How many reports a case has, including none.
+ *
+ * `Map<K, Counter>` does not auto-initialise: a case nobody has reported has no
+ * entry at all, and `lookup` on a missing key fails rather than returning zero.
+ * It is the same asymmetry `registerFiling` handles with an `insert` before its
+ * first `increment`, and it is why both views ask `member` first. Shared so the
+ * two cannot drift into disagreeing about what an unreported case reads as.
+ */
+function reportsFor(state: AmparoLedger, caseCommitment: Uint8Array): bigint {
+  return state.caseReports.member(caseCommitment)
+    ? state.caseReports.lookup(caseCommitment).read()
+    : 0n;
+}
+
+/**
  * Joins the contract's public state with one reporter's secret.
  *
  * `threshold` is passed in because it cannot be read: `reviewThreshold` is a
@@ -104,9 +119,7 @@ export function deriveReporterView(
 
     cases.push({
       caseCommitment: toHex(caseCommitment),
-      reports: state.caseReports.member(caseCommitment)
-        ? state.caseReports.lookup(caseCommitment).read()
-        : 0n,
+      reports: reportsFor(state, caseCommitment),
       underReview: state.casesUnderReview.member(caseCommitment),
       hasFiled,
       canFile: !hasFiled,
@@ -225,9 +238,7 @@ export function derivePublicView(
   let underReviewCount = 0;
 
   for (const caseCommitment of state.admittedIndex) {
-    const reports = state.caseReports.member(caseCommitment)
-      ? state.caseReports.lookup(caseCommitment).read()
-      : 0n;
+    const reports = reportsFor(state, caseCommitment);
     const underReview = state.casesUnderReview.member(caseCommitment);
 
     totalReports += reports;

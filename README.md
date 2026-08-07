@@ -158,10 +158,30 @@ the one public value derived from a reporter's secret - putting them on a screen
 would publish the only per-person artifact the design has. Still unlinkable to a
 name, but no longer unlinkable to each other across one reporter's filings.
 
-The page polls the process; the process holds one live subscription to the chain.
-So a counter moving is the chain's own event arriving, not a poll that happened
-to catch it. `/api/state` serves the same snapshot as JSON, which is the boundary
-a richer frontend can consume without rebuilding any of this.
+The page polls the process; the process subscribes to the chain and rebuilds that
+subscription whenever it ends. A counter moving is a real state change - the
+browser's polling only carries the last thing the subscription saw, it never
+decides what changed. `/api/state` serves the same snapshot as JSON, which is the
+boundary a richer frontend can consume without rebuilding any of this.
+
+The footer reports two different clocks, and the difference matters when
+something is wrong. **Last change** is the chain being quiet, which is normal -
+nobody is obliged to file. **Checked** is this process hearing from the indexer
+at all, and it is the one that goes stale when the view is broken rather than
+idle. `reconnects` climbing steadily means a sick indexer.
+
+That distinction exists because the indexer stream **ends by completing, not by
+failing**. Measured by instrumenting `next`/`error`/`complete` through a stopped
+container: `+0.2s NEXT`, `+10.0s COMPLETE`. A completed stream is not an error,
+so `retry` never fires on it, and it is not silence either, so a timeout never
+fires on it - an earlier version of this view froze permanently after any indexer
+hiccup while every other signal stayed green. `repeat` is what resubscribes after
+a completion. All three operators are in the pipeline now because they cover
+three different endings: completion, error, and an open socket that has gone
+mute.
+
+**`reporterView$` has the same shape and therefore the same fault**, and the
+frontend consumes it. Fixing it there is tracked separately from this view.
 
 ### Order matters, and each step rules out a different failure
 
