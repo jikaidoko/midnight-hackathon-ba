@@ -13,12 +13,19 @@ times** - without saying how many, which ones, or who.
 |---|---|
 | `contracts/` | Compact circuits and their TypeScript layer |
 | `contracts/src/case_admission.compact` | Case admission primitive |
-| `contracts/src/case-registry.ts` | Off-chain registry mirror + alignment guard |
-| `contracts/src/witnesses.ts` | Private inputs the circuits read |
+| `contracts/src/filing_registry.compact` | Filing registry: threshold credential + public case alarm |
+| `contracts/src/case-registry.ts` | Off-chain admitted-case mirror + alignment guard |
+| `contracts/src/merkle-mirror.ts` | Merkle mirror the client rebuilds to produce paths |
+| `contracts/src/verifier.ts` | Off-chain second source for a presented root |
+| `contracts/src/witnesses.ts`, `filing-witnesses.ts` | Private inputs the circuits read |
 | `contracts/src/midnight/` | Network configuration, wallet, providers |
 | `contracts/scripts/` | Health check, wallet check, deploy, admit |
 | `contracts/src/*.test.ts` | Simulator tests (no proof server) |
+| `contracts/test/` | End-to-end product journey and the test strategy |
 | `contracts/docker-compose.midnight.yml` | Local standalone network |
+
+The network scripts under `contracts/scripts/` drive the **admission** contract
+only. The filing registry has simulator coverage but no deployment path yet.
 
 ## Toolchain
 
