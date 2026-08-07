@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Amparo - Detalle de Reporte</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;family=Manrope:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "on-primary-container": "#8e8acb",
+                "inverse-on-surface": "#f3eeff",
+                "on-error-container": "#93000a",
+                "secondary-fixed-dim": "#c9c3df",
+                "primary-fixed": "#e3dfff",
+                "surface-container-high": "#e9e5ff",
+                "surface-variant": "#e3dfff",
+                "on-tertiary": "#ffffff",
+                "secondary-container": "#e3dcf9",
+                "on-surface": "#1a1931",
+                "error-container": "#ffdad6",
+                "surface-container-highest": "#e3dfff",
+                "on-tertiary-container": "#9d8c99",
+                "surface-container-low": "#f6f2ff",
+                "inverse-surface": "#2f2e47",
+                "on-background": "#1a1931",
+                "surface-tint": "#5b5795",
+                "tertiary-fixed-dim": "#d4c1cf",
+                "on-primary-fixed": "#17114d",
+                "inverse-primary": "#c5c0ff",
+                "outline-variant": "#c8c5d1",
+                "tertiary-container": "#322630",
+                "on-secondary": "#ffffff",
+                "on-error": "#ffffff",
+                "primary": "#110847",
+                "on-surface-variant": "#47464f",
+                "tertiary": "#1c121b",
+                "outline": "#787681",
+                "surface": "#fcf8ff",
+                "surface-container-lowest": "#ffffff",
+                "surface-dim": "#dad7f7",
+                "tertiary-fixed": "#f1ddeb",
+                "secondary-fixed": "#e6dffb",
+                "secondary": "#605b73",
+                "background": "#fcf8ff",
+                "on-secondary-container": "#646078",
+                "error": "#ba1a1a",
+                "on-secondary-fixed": "#1c192d",
+                "on-tertiary-fixed": "#231822",
+                "on-primary-fixed-variant": "#443f7b",
+                "on-tertiary-fixed-variant": "#50434e",
+                "primary-fixed-dim": "#c5c0ff",
+                "on-secondary-fixed-variant": "#48445b",
+                "on-primary": "#ffffff",
+                "surface-bright": "#fcf8ff",
+                "primary-container": "#26215c",
+                "surface-container": "#efebff",
+                "crema": "#FAEEDA"
+        },
+        "borderRadius": {
+                "DEFAULT": "1rem",
+                "lg": "2rem",
+                "xl": "3rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "gutter": "16px",
+                "container-padding-mobile": "24px",
+                "element-gap": "20px",
+                "container-padding-desktop": "64px",
+                "section-gap": "48px",
+                "unit": "8px",
+                "stack-gap-md": "16px",
+                "section-padding": "40px",
+                "container-margin": "24px",
+                "stack-gap-sm": "8px",
+                "stack-gap-lg": "32px"
+        },
+        "fontFamily": {
+                "body-sm": [
+                        "Inter"
+                ],
+                "body-md": [
+                        "Inter"
+                ],
+                "headline-sm": [
+                        "Manrope"
+                ],
+                "headline-md": [
+                        "Manrope"
+                ],
+                "headline-lg-mobile": [
+                        "Manrope"
+                ],
+                "label-md": [
+                        "Inter"
+                ],
+                "headline-lg": [
+                        "Manrope"
+                ],
+                "display-lg": [
+                        "Manrope"
+                ],
+                "body-lg": [
+                        "Inter"
+                ],
+                "display-greetings": ["Manrope"],
+                "label-caps": ["Inter"]
+        },
+        "fontSize": {
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "headline-sm": [
+                        "20px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-md": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "28px",
+                        {
+                                "lineHeight": "36px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-md": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "600"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "display-lg": [
+                        "48px",
+                        {
+                                "lineHeight": "56px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "800"
+                        }
+                ],
+                "body-lg": [
+                        "18px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "display-greetings": ["34px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }]
+        }
+},
+    },
+  }
+</script>
+<style>
+        body {
+            background-color: #faf8ff;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(227, 223, 255, 0.4), transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(250, 238, 218, 0.4), transparent 50%);
+            min-height: 100vh;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="text-on-background font-body-md antialiased overflow-x-hidden">
+<!-- TopAppBar -->
+<header class="fixed z-50 bg-white/85 dark:bg-primary/85 backdrop-blur-xl docked full-width top-0 shadow-lg shadow-primary/10 shadow-[0px_12px_40px_rgba(38,33,92,0.08)] flex justify-between items-center px-container-margin py-4 w-full">
+<button class="text-primary dark:text-inverse-primary hover:bg-white/95 transition-all duration-300 scale-95 active:scale-90 transition-transform">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-inverse-primary">Reporte</h1>
+<div class="w-6"></div> <!-- Spacer for centering -->
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-24 pb-32 px-container-margin max-w-md mx-auto space-y-stack-gap-lg">
+<!-- Header Section -->
+<section class="flex flex-col items-center text-center space-y-stack-gap-sm mt-8" id="report-detail">
+<div class="inline-flex items-center space-x-2 bg-primary-fixed/20 px-4 py-1.5 rounded-full text-primary font-label-caps text-label-caps h-[32px]">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span>Sellado</span>
+</div>
+<h2 class="font-display-greetings text-display-greetings text-primary">Denuncia por contaminación de agua</h2>
+<p class="text-on-surface-variant font-body-md text-body-md">7 de agosto · 13:42</p>
+</section>
+<!-- Verification Card -->
+<section class="bg-primary-fixed/20 backdrop-blur-xl rounded-[24px] p-6 shadow-[0px_12px_40px_rgba(38,33,92,0.08)] space-y-4 border border-white/50" id="report-verification">
+<h3 class="font-headline-sm text-headline-sm text-primary mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">verified_user</span>
+                Registro
+            </h3>
+<p class="text-on-surface font-body-md mb-4">Podemos comprobar que este reporte no fue modificado desde su creación.</p>
+<ul class="space-y-3 font-body-md text-body-md text-on-surface">
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-sm">check</span>
+                    Integridad confirmada
+                </li>
+<li class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-sm">check</span>
+                    Fecha de registro confirmada
+                </li>
+</ul>
+<div class="pt-4 flex justify-between items-center">
+<button class="text-primary font-label-caps text-label-caps hover:underline flex items-center gap-1">
+                    Ver detalles técnicos
+                    <span class="material-symbols-outlined text-sm">expand_more</span>
+</button>
+</div>
+</section>
+<!-- Privacy Card -->
+<section class="bg-[#Fdf5eb] backdrop-blur-md rounded-[24px] p-6 shadow-[0px_12px_40px_rgba(38,33,92,0.08)] text-center">
+<div class="mx-auto w-12 h-12 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm text-primary">
+<span class="material-symbols-outlined">lock</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-primary mb-2">Privacidad</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                El contenido de este reporte es privado. Solo vos podés decidir cuándo compartirlo.
+            </p>
+</section>
+<!-- Actions -->
+<section class="flex flex-col gap-4 mt-8">
+<button class="w-full bg-primary text-white h-[56px] rounded-full font-headline-md text-headline-md hover:scale-[1.02] active:scale-95 transition-transform shadow-[0px_8px_20px_rgba(38,33,92,0.2)]">
+                Gestionar acceso
+            </button>
+</section>
+</main>
+<!-- Suppressed Nav Shells due to Task-Focused Intent (Back Action implies temporary departure) -->
+</body></html>

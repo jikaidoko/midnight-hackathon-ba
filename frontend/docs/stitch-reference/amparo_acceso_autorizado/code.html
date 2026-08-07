@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Acceso Autorizado - AMPARO</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-container": "#8e8acb",
+                        "inverse-on-surface": "#f3eeff",
+                        "on-error-container": "#93000a",
+                        "secondary-fixed-dim": "#c9c3df",
+                        "primary-fixed": "#e3dfff",
+                        "surface-container-high": "#e9e5ff",
+                        "surface-variant": "#e3dfff",
+                        "on-tertiary": "#ffffff",
+                        "secondary-container": "#e3dcf9",
+                        "on-surface": "#1a1931",
+                        "error-container": "#ffdad6",
+                        "surface-container-highest": "#e3dfff",
+                        "on-tertiary-container": "#9d8c99",
+                        "surface-container-low": "#f6f2ff",
+                        "inverse-surface": "#2f2e47",
+                        "on-background": "#1a1931",
+                        "surface-tint": "#5b5795",
+                        "tertiary-fixed-dim": "#d4c1cf",
+                        "on-primary-fixed": "#17114d",
+                        "inverse-primary": "#c5c0ff",
+                        "outline-variant": "#c8c5d1",
+                        "tertiary-container": "#322630",
+                        "on-secondary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "primary": "#110847",
+                        "on-surface-variant": "#47464f",
+                        "tertiary": "#1c121b",
+                        "outline": "#787681",
+                        "surface": "#fcf8ff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-dim": "#dad7f7",
+                        "tertiary-fixed": "#f1ddeb",
+                        "secondary-fixed": "#e6dffb",
+                        "secondary": "#605b73",
+                        "background": "#fcf8ff",
+                        "on-secondary-container": "#646078",
+                        "error": "#ba1a1a",
+                        "on-secondary-fixed": "#1c192d",
+                        "on-tertiary-fixed": "#231822",
+                        "on-primary-fixed-variant": "#443f7b",
+                        "on-tertiary-fixed-variant": "#50434e",
+                        "primary-fixed-dim": "#c5c0ff",
+                        "on-secondary-fixed-variant": "#48445b",
+                        "on-primary": "#ffffff",
+                        "surface-bright": "#fcf8ff",
+                        "primary-container": "#26215c",
+                        "surface-container": "#efebff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "container-padding-mobile": "24px",
+                        "element-gap": "20px",
+                        "container-padding-desktop": "64px",
+                        "section-gap": "48px",
+                        "unit": "8px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "margin-desktop": "40px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-sm": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-lg-mobile": ["Manrope"],
+                        "label-md": ["Inter"],
+                        "headline-lg": ["Manrope"],
+                        "display-lg": ["Manrope"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0;
+            transform: translateY(24px);
+        }
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .delay-100 { animation-delay: 100ms; }
+        .delay-200 { animation-delay: 200ms; }
+        .delay-300 { animation-delay: 300ms; }
+        body {
+            min-height: max(884px, 100dvh);
+            background-image: radial-gradient(circle at top right, rgba(227, 223, 255, 0.4), transparent 50%),
+                              radial-gradient(circle at bottom left, rgba(241, 221, 235, 0.3), transparent 50%);
+            background-attachment: fixed;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-md antialiased selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Floating Glass TopAppBar -->
+<header class="fixed top-4 left-4 right-4 z-40 max-w-7xl mx-auto">
+<div class="glass-panel bg-surface/60 border border-white/40 shadow-sm rounded-full flex items-center justify-between px-6 h-14 w-full">
+<button aria-label="Volver" class="flex items-center justify-center hover:opacity-80 transition-opacity active:scale-95 duration-150">
+<span class="material-symbols-outlined text-primary" data-icon="arrow_back">arrow_back</span>
+</button>
+<span class="font-headline-sm text-headline-sm tracking-tight text-primary">AMPARO</span>
+<button class="flex items-center justify-center hover:opacity-80 transition-opacity active:scale-95 duration-150">
+<span class="font-label-md text-label-md text-primary">Verificado</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 flex flex-col px-margin-mobile md:px-margin-desktop py-lg max-w-2xl mx-auto w-full pt-28">
+<!-- Header Section -->
+<section class="flex flex-col items-center text-center gap-md mb-xl fade-in-up">
+<!-- StatusChip: Compartido -->
+<div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary-fixed/60 glass-panel border border-white/50 text-on-primary-fixed w-max">
+<span class="material-symbols-outlined text-[16px]" data-icon="share" style="font-variation-settings: 'FILL' 1;">share</span>
+<span class="font-label-md text-label-md uppercase tracking-wide">Compartido</span>
+</div>
+<div class="flex flex-col gap-sm mt-4">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-primary">Acceso autorizado</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-sm mx-auto">
+                    Autoridad Ambiental puede consultar la información que seleccionaste.
+                </p>
+</div>
+</section>
+<!-- Information Cards -->
+<section class="flex flex-col gap-8 mb-xl w-full">
+<!-- Glass Lavender Card: Compartido -->
+<div class="glass-panel bg-[#e9e5ff]/40 rounded-3xl p-8 flex flex-col gap-6 fade-in-up delay-100 border border-white/60 shadow-[0_8px_32px_rgba(17,8,71,0.04)]">
+<h2 class="font-label-md text-label-md text-primary tracking-widest uppercase">Compartido</h2>
+<div class="flex flex-col gap-6">
+<div class="flex items-center gap-4">
+<div class="bg-primary-fixed rounded-full h-10 w-10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="check">check</span>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">Contenido de la denuncia</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-primary-fixed rounded-full h-10 w-10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="check">check</span>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface">Evidencia adjunta</span>
+</div>
+</div>
+</div>
+<!-- Warm Cream Card: Permanece privado -->
+<div class="glass-panel bg-[#fdfbf7]/60 rounded-3xl p-8 flex flex-col gap-6 fade-in-up delay-200 border border-[#f0e8d5]/40 shadow-[0_8px_32px_rgba(17,8,71,0.02)]">
+<h2 class="font-label-md text-label-md text-on-surface-variant tracking-widest uppercase">Permanece privado</h2>
+<div class="flex flex-col gap-6">
+<div class="flex items-center gap-4">
+<div class="bg-surface-container-high/50 rounded-full h-10 w-10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="lock">lock</span>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface-variant">Ubicación exacta</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container-high/50 rounded-full h-10 w-10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="lock">lock</span>
+</div>
+<span class="font-body-lg text-body-lg text-on-surface-variant">Datos de identidad</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Footer Note & Actions -->
+<section class="mt-auto pt-4 flex flex-col gap-8 w-full fade-in-up delay-300">
+<p class="font-label-md text-label-md text-on-surface-variant text-center">
+                Esta autorización solo aplica a este reporte.
+            </p>
+<div class="flex flex-col gap-4 w-full pb-xl">
+<button class="h-14 bg-primary text-white rounded-full flex items-center justify-center font-body-md font-semibold w-full hover:opacity-80 transition-opacity active:scale-95 duration-150 shadow-lg shadow-primary/20">
+                    Ver permisos
+                </button>
+<button class="h-14 bg-white/50 glass-panel border border-primary/20 text-primary rounded-full flex items-center justify-center font-body-md font-semibold w-full hover:bg-primary-fixed/20 transition-colors active:scale-95 duration-150">
+                    Volver al reporte
+                </button>
+</div>
+</section>
+</main>
+</body></html>
