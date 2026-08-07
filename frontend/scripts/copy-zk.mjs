@@ -12,6 +12,7 @@ import { cp, access, rm } from 'node:fs/promises';
 import { fileURLToPath, URL } from 'node:url';
 
 const SOURCE = fileURLToPath(new URL('../../contracts/src/managed/amparo', import.meta.url));
+const PUBLISHED = fileURLToPath(new URL('../public/zk', import.meta.url));
 const TARGET = fileURLToPath(new URL('../public/zk/amparo', import.meta.url));
 
 try {
@@ -27,8 +28,18 @@ try {
   process.exit(1);
 }
 
-// Removed first so a stale key from a previous circuit cannot survive a rebuild
-// and be served alongside new ones.
-await rm(TARGET, { recursive: true, force: true });
+// The WHOLE published directory goes, not just this contract's subdirectory.
+//
+// Clearing only the target is what an earlier version did, and it does not
+// hold: renaming the contract leaves the previous name's keys published under
+// their old path, still served, indistinguishable from current ones. Measured
+// here - 15 MB of proving keys for a contract that no longer exists, answering
+// 200. Nothing catches it: the directory is gitignored so it never appears in a
+// diff, and the app only ever fetches its own path, so every check stays green
+// while the stale set sits next to the live one.
+//
+// Wiping the directory makes what is published exactly what the compiler just
+// emitted, which is the property the copy is supposed to have.
+await rm(PUBLISHED, { recursive: true, force: true });
 await cp(SOURCE, TARGET, { recursive: true });
 console.log(`Published ZK assets to ${TARGET}`);

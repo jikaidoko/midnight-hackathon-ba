@@ -100,16 +100,40 @@ function privateStatePassword(): string {
  * flow has already started, which reads like a circuit problem. It is a
  * deployment problem, and it is knowable before anyone presses anything.
  *
+ * The status code alone does NOT answer the question, and trusting it made this
+ * guard useless in the one mode it matters most. A dev server answers an
+ * unknown path with the SPA fallback - `index.html`, HTTP 200 - so a missing
+ * proving key looks exactly like a present one. Measured here: a deliberately
+ * invented path returned 200. The guard was silent, and a silent guard is
+ * indistinguishable from an approving one.
+ *
+ * So it asks whether what came back is a key rather than whether something came
+ * back: HTML is the fallback, never a prover. Both circuits are probed because
+ * they are published as one directory but fetched independently, and a partial
+ * copy would otherwise be caught only by whichever flow the demo ran second.
  */
 export async function assertZkAssets(): Promise<void> {
-  const probe = `${ZK_BASE}/keys/registerFiling.prover`
-  const response = await fetch(probe, { method: 'HEAD' })
-  if (!response.ok) {
-    throw new Error(
-      `Proving keys are not being served (${probe} returned ${response.status}). ` +
-        'Copy `contracts/src/managed/amparo/` into `frontend/public/zk/` before ' +
-        'building; the interface cannot generate a proof without them.',
-    )
+  const circuits: AmparoCircuitId[] = ['registerFiling', 'proveRepeatFilings']
+
+  for (const circuit of circuits) {
+    const probe = `${ZK_BASE}/keys/${circuit}.prover`
+    const response = await fetch(probe, { method: 'HEAD' })
+
+    if (!response.ok) {
+      throw new Error(
+        `Proving keys are not being served (${probe} returned ${response.status}). ` +
+          'Copy `contracts/src/managed/amparo/` into `frontend/public/zk/` before ' +
+          'building; the interface cannot generate a proof without them.',
+      )
+    }
+
+    if ((response.headers.get('content-type') ?? '').includes('text/html')) {
+      throw new Error(
+        `${probe} answered with HTML, not a proving key. That is this server's ` +
+          'fallback page for a path it does not have, so the key is MISSING - the ' +
+          '200 says the server is up, not that the key exists. Run `npm run copy-zk`.',
+      )
+    }
   }
 }
 
