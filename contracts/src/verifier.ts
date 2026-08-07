@@ -1,14 +1,15 @@
-// verifier.ts — the off-chain obligation that closes proveRepeatFilings.
+// verifier.ts — defence in depth for proveRepeatFilings.
 //
 // The circuit proves: "I hold three distinct nullifiers derived from my secret,
-// and each has a Merkle path to root R." It CANNOT prove that R is a real root
-// of the on-chain tree: root() is runtime-only, so no circuit can bind a
-// declared root to the ledger. Left alone, a caller could build their own tree
-// and present paths into it — test 8 does exactly that, and the circuit accepts.
+// each with a Merkle path to root R, and R is a root this contract's nullifier
+// tree actually had." That last clause is enforced in-circuit by `checkRoot`,
+// so a caller cannot present paths into a tree of their own making.
 //
-// So binding R to the chain is the verifier's job, and it is one call. A
-// verifier that skips it is not verifying anything. Same guard shape as
-// assertMirrorMatchesTree in case-registry.ts.
+// This function re-states the same check off-chain. It is NOT what makes the
+// credential sound - the circuit is - and it must never become that again:
+// a guarantee that lives only in the verifier holds only for verifiers that
+// remember to run it. Keep it as a second, independent source, useful where a
+// caller reads a stored proof without re-executing the circuit.
 
 import type { Ledger } from './managed/filing_registry/contract/index.js';
 

@@ -104,16 +104,21 @@ export pure circuit filingNullifierOf(
   ]);
 }
 
-circuit filingNullifier(caseCommitment: Bytes<32>): Bytes<32> {
-  return filingNullifierOf(subjectSecret(), caseCommitment);
-}
-
 // Ties a threshold proof to the (subject, verifier context) pair. A separate
 // domain prefix keeps it from ever colliding with a filing nullifier.
-circuit presentationNullifier(context: Bytes<32>): Bytes<32> {
+//
+// Both derivations take the secret as a PARAMETER and both are `pure`, which is
+// what makes it impossible for either to call `subjectSecret()` on its own. A
+// helper that hides a witness read makes the NUMBER of reads invisible at the
+// call site, and that number is the security property itself — see the comment
+// at the top of `proveRepeatFilings`.
+pure circuit presentationNullifierOf(
+  secret: Bytes<32>,
+  context: Bytes<32>
+): Bytes<32> {
   return persistentHash<Vector<3, Bytes<32>>>([
     pad(32, "amparo:presentation-nullifier:v1"),
-    subjectSecret(),
+    secret,
     context
   ]);
 }
@@ -133,7 +138,8 @@ export circuit registerFiling(
   assert(merkleTreePathRoot<20, Bytes<32>>(path) == admittedRoot,
     "Case is not in the admitted registry");
 
-  const nullifier = disclose(filingNullifier(caseCommitment));
+  const secret = subjectSecret();
+  const nullifier = disclose(filingNullifierOf(secret, caseCommitment));
   assert(!spentFilingNullifiers.member(nullifier), "Subject already filed for this case");
   spentFilingNullifiers.insert(nullifier);
   filingNullifierTree.insert(nullifier);
@@ -171,11 +177,19 @@ export circuit registerFiling(
 // a Set lookup would have leaked them, since any ledger operation on a
 // witness-derived value counts as a disclosure in Compact 0.31.
 //
-// ⚠️ The verifier MUST check off-chain that `claimedRoot` is a real root of
-// `filingNullifierTree`. The circuit cannot do it: `root()` is runtime-only, so
-// no circuit can bind a declared root to the tree. Without that check a caller
-// could present paths into a tree of their own making. Same guard shape as
-// `assertMirrorMatchesTree` in case-registry.ts.
+// `claimedRoot` is bound to the chain IN-CIRCUIT by `checkRoot`. Without that
+// bind, a caller could build their own tree, insert three nullifiers they can
+// legitimately derive, and present paths into it — the leaf and path asserts
+// above would all pass. Anchoring it is what makes the credential sound.
+//
+// `checkRoot(digest)` is not `root()`. `root()` READS the root and is
+// runtime-only ("MerkleTree root is a runtime-only method, but was invoked
+// in-circuit"); `checkRoot` ASKS the ledger whether a digest was ever a root,
+// and is callable in-circuit. Conflating them is what pushes this guarantee
+// off-chain, where it depends on every verifier remembering to run it.
+//
+// Historic is what makes the bind usable: a proof built moments before someone
+// else files is still honest, and `checkRoot` still accepts its root.
 //
 // Three is fixed at compile time. Compact loops are compile-time bounded, so
 // the arity of the proof is too — a runtime N would not compile.
@@ -188,7 +202,21 @@ export circuit proveRepeatFilings(
   claimedRoot: MerkleTreeDigest,
   context: Bytes<32>
 ): Boolean {
+  // ONE read of the witness, reused by every derivation below. Each call to
+  // `subjectSecret()` is an INDEPENDENT private input: the witness runs on the
+  // prover's machine and may answer differently every time. With one read per
+  // derivation, three people pool one filing each into a single "I filed three
+  // times" credential, and a fourth read dodges the presentation nullifier for
+  // an unlimited replay against the same verifier. Reading once makes both
+  // unrepresentable, because there is only one secret to be consistent with.
+  const secret = subjectSecret();
+
   const root = disclose(claimedRoot);
+
+  // The anchor. Every assert below proves membership in SOME tree; this is the
+  // one that says the tree is ours.
+  assert(filingNullifierTree.checkRoot(root),
+    "Claimed root is not a root of the on-chain nullifier tree");
 
   // Distinct cases, or one filing would be counted three times.
   assert(cases[0] != cases[1], "Cases presented must be distinct");
@@ -196,10 +224,11 @@ export circuit proveRepeatFilings(
   assert(cases[1] != cases[2], "Cases presented must be distinct");
 
   // Each leaf is a nullifier only this subject can derive, and each path
-  // reaches the claimed root.
-  assert(paths[0].leaf == filingNullifier(cases[0]), "Leaf is not a nullifier of the caller");
-  assert(paths[1].leaf == filingNullifier(cases[1]), "Leaf is not a nullifier of the caller");
-  assert(paths[2].leaf == filingNullifier(cases[2]), "Leaf is not a nullifier of the caller");
+  // reaches the claimed root. All three derive from the SAME `secret`, so the
+  // three filings are provably one person's.
+  assert(paths[0].leaf == filingNullifierOf(secret, cases[0]), "Leaf is not a nullifier of the caller");
+  assert(paths[1].leaf == filingNullifierOf(secret, cases[1]), "Leaf is not a nullifier of the caller");
+  assert(paths[2].leaf == filingNullifierOf(secret, cases[2]), "Leaf is not a nullifier of the caller");
 
   assert(merkleTreePathRoot<20, Bytes<32>>(paths[0]) == root, "Filing is not on record");
   assert(merkleTreePathRoot<20, Bytes<32>>(paths[1]) == root, "Filing is not on record");
@@ -207,7 +236,9 @@ export circuit proveRepeatFilings(
 
   // One presentation per (subject, verifier context). Spent only once every
   // check above has passed, so a rejected attempt never burns the context.
-  const presentation = disclose(presentationNullifier(context));
+  // Derived from the same `secret` the leaves were checked against, which is
+  // what binds the replay guard to the identity that just proved the filings.
+  const presentation = disclose(presentationNullifierOf(secret, context));
   assert(!spentPresentationNullifiers.member(presentation),
     "Threshold proof already presented in this context");
   spentPresentationNullifiers.insert(presentation);

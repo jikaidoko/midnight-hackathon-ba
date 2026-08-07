@@ -7,7 +7,8 @@
 //   4. That case crosses the threshold and flips to UNDER REVIEW in public.
 //   5. Sofía proves to a verifier that she has three prior filings — without
 //      revealing which, when, or who she is. The verifier sees a boolean.
-//   6. The verifier performs its off-chain obligation and the proof holds.
+//   6. The verifier re-checks the anchor off-chain, as a second source, and
+//      reaches the same verdict the circuit already enforced.
 //
 // Runs in the simulator: no proof generation, no network, no proof server.
 

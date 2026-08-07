@@ -24,6 +24,9 @@
 //  13. KNOWN LIMITATION, asserted so it cannot rot silently into a claim we do
 //      not have: output B counts distinct SECRETS, not distinct PEOPLE.
 //  14. The subject secret never appears in public state.
+//  15. ADVERSARIAL — a prover whose witness answers with a DIFFERENT secret on
+//      each read. Every other case assumes an honest witness, which is an
+//      assumption about the attacker; this one drops it.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,7 +36,11 @@ import {
   dummyContractAddress,
   type CircuitContext,
 } from '@midnight-ntwrk/compact-runtime';
-import { Contract, ledger, pureCircuits } from './managed/filing_registry/contract/index.js';
+import {
+  Contract, ledger, pureCircuits,
+  type Ledger, type Witnesses,
+} from './managed/filing_registry/contract/index.js';
+import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
 import {
   witnesses,
   createSubjectPrivateState,
@@ -64,11 +71,15 @@ type LedgerState = CircuitContext<SubjectPrivateState>['currentQueryContext']['s
  * whose root the contract is deployed with, and the nullifier tree, which the
  * client rebuilds as filings land so it can produce credential paths.
  */
-function setup(admitted: Uint8Array[] = [CASE_A, CASE_B, CASE_C], reviewThreshold = 3n) {
+function setup(
+  admitted: Uint8Array[] = [CASE_A, CASE_B, CASE_C],
+  reviewThreshold = 3n,
+  useWitnesses: Witnesses<SubjectPrivateState> = witnesses,
+) {
   const cases = createMerkleMirror();
   for (const c of admitted) cases.insert(c);
 
-  const contract = new Contract<SubjectPrivateState>(witnesses);
+  const contract = new Contract<SubjectPrivateState>(useWitnesses);
   const init = contract.initialState(
     createConstructorContext<SubjectPrivateState>(createSubjectPrivateState(SOFIA), COIN_PK),
     cases.root(),
@@ -124,6 +135,25 @@ function present(
   );
   return { result: out.result, state: out.context.currentQueryContext.state };
 }
+
+/**
+ * A DISHONEST witness, for test 15. It answers from `rotatingQueue`, so
+ * successive reads of `subjectSecret()` inside a single circuit call can return
+ * different values; with the queue empty it behaves exactly like the honest one.
+ *
+ * Nothing privileged is going on: the witness file is the prover's own code, so
+ * this is one line of work for an attacker. It exists because "how many times
+ * does the circuit read the secret?" is a security property, and the honest
+ * witness cannot measure it — it answers the same thing every time.
+ */
+let rotatingQueue: Uint8Array[] = [];
+
+const rotatingWitnesses: Witnesses<SubjectPrivateState> = {
+  subjectSecret: (c: WitnessContext<Ledger, SubjectPrivateState>) => [
+    c.privateState,
+    rotatingQueue.length > 0 ? rotatingQueue.shift()! : c.privateState.subjectSecret,
+  ],
+};
 
 /** Three real filings by one subject. */
 function threeFilings(e: Env): LedgerState {
@@ -199,26 +229,37 @@ test('8. ADVERSARIAL: zero filings cannot produce a credential', () => {
     'with nothing on chain there are no paths to present',
   );
 
-  // Now the interesting half. The attacker builds their OWN tree containing
-  // nullifiers they can legitimately derive, and presents paths into it.
+  // The interesting half. The attacker builds their OWN tree containing
+  // nullifiers they can legitimately derive, and presents paths into it. Every
+  // leaf and path assert in the circuit passes: the leaves really are their
+  // nullifiers and the paths really do reach the root they declared. Only the
+  // anchor separates this from an honest presentation.
   const forged = createMerkleMirror();
   const leaves = [CASE_A, CASE_B, CASE_C].map((c) => pureCircuits.filingNullifierOf(SOFIA, c));
   for (const l of leaves) forged.insert(l);
 
-  const out = present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, {
-    paths: leaves.map((l) => forged.pathFor(l)),
-    root: forged.root(),
-  });
-  assert.equal(out.result, true, 'the CIRCUIT accepts it — it cannot bind the root to the chain');
+  assert.throws(
+    () => present(e, e.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, {
+      paths: leaves.map((l) => forged.pathFor(l)),
+      root: forged.root(),
+    }),
+    /not a root of the on-chain nullifier tree/i,
+    'the CIRCUIT rejects a tree of the caller\'s own making',
+  );
 
-  // Which is exactly why the verifier check is not optional.
+  // Nothing was consumed by the rejected attempt: the presentation nullifier is
+  // spent after the anchor, so the context survives for an honest presentation.
+  assert.equal(ledger(e.state).spentPresentationNullifiers.size(), 0n,
+    'a rejected forgery does not burn the verifier context');
+
+  // The off-chain guard agrees, independently. It is a second source, not the
+  // thing that closes the hole.
   assert.throws(
     () => assertClaimedRootIsOnChain(ledger(e.state), forged.root()),
     /not a root of the on-chain/i,
-    'the off-chain guard is what closes the hole',
   );
 
-  // And the honest path passes the same guard.
+  // And the honest path passes both.
   const real = threeFilings(e);
   assertClaimedRootIsOnChain(ledger(real), ledger(real).filingNullifierTree.root());
 });
@@ -329,4 +370,59 @@ test('14. the subject secret never appears in public state', () => {
   for (const c of [CASE_A, CASE_B, CASE_C]) {
     assert.ok(!published.includes(toHex(c)), 'raw case commitments are not the published values');
   }
+});
+
+test('15. ADVERSARIAL: a prover that answers with a different secret each time', () => {
+  // Every other test uses the honest witness, which returns the same secret on
+  // every call. That is an assumption about the PROVER, and the prover is the
+  // attacker: the witness file runs on their machine, so answering differently
+  // per call costs them one line of code. `rotating` is that line.
+  //
+  // The circuit reads `subjectSecret()` exactly once and threads the value
+  // through all four derivations. With one read per derivation instead, both
+  // attacks below succeed — measured, not assumed.
+  rotatingQueue = [];
+  const e = setup([CASE_A, CASE_B, CASE_C], 3n, rotatingWitnesses);
+
+  // Three DIFFERENT people, one filing each. Nobody has three.
+  let s = e.state;
+  for (const [who, kase] of [[SOFIA, CASE_A], [OTHER, CASE_B], [THIRD, CASE_C]] as const) {
+    s = file(e, s, who, kase);
+  }
+  assert.equal(ledger(s).spentFilingNullifiers.size(), 3n, 'three filings, one per person');
+
+  const tree = ledger(s).filingNullifierTree;
+  const pooled = ([[SOFIA, CASE_A], [OTHER, CASE_B], [THIRD, CASE_C]] as const).map(
+    ([who, kase]) =>
+      tree.findPathForLeaf(pureCircuits.filingNullifierOf(who, kase)) as unknown as LeafPath,
+  );
+
+  // Attack 1 — pooling. Each leaf is a genuine on-chain nullifier and each path
+  // reaches the real root, so the anchor and every path assert pass. The only
+  // thing standing in the way is that all three must derive from ONE secret.
+  rotatingQueue = [SOFIA, OTHER, THIRD, b32(0xee)]; // 3 leaves + 1 presentation
+  assert.throws(
+    () => present(e, s, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER, { paths: pooled }),
+    /not a nullifier of the caller/i,
+    'three people cannot pool one filing each into an "I filed 3 times" credential',
+  );
+
+  // Attack 2 — replay. One honest presentation happens first, then the attacker
+  // rotates ONLY the fourth read, which is where the presentation nullifier used
+  // to come from. If that read were independent of the leaves, every replay
+  // against the same verifier would mint a fresh nullifier and never collide.
+  rotatingQueue = [];
+  const honest = setup([CASE_A, CASE_B, CASE_C], 3n, rotatingWitnesses);
+  const first = present(honest, threeFilings(honest), SOFIA,
+    [CASE_A, CASE_B, CASE_C], VERIFIER);
+  assert.equal(first.result, true, 'the honest presentation still works');
+
+  rotatingQueue = [SOFIA, SOFIA, SOFIA, b32(0xe1)]; // honest leaves, forged 4th read
+  assert.throws(
+    () => present(honest, first.state, SOFIA, [CASE_A, CASE_B, CASE_C], VERIFIER),
+    /already presented/i,
+    'the replay guard is bound to the secret the leaves were checked against',
+  );
+
+  rotatingQueue = [];
 });
