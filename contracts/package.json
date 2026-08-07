@@ -8,6 +8,8 @@
   "scripts": {
     "compile": "compact compile src/case_admission.compact src/managed/case_admission",
     "compile:fast": "compact compile --skip-zk src/case_admission.compact src/managed/case_admission",
+    "compile:filing": "compact compile src/filing_registry.compact src/managed/filing_registry",
+    "compile:filing:fast": "compact compile --skip-zk src/filing_registry.compact src/managed/filing_registry",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },

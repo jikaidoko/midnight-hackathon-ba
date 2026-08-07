@@ -1,0 +1,130 @@
+pragma language_version >= 0.23;
+import CompactStandardLibrary;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Amparo — FILING REGISTRY. Step 1 (core).
+//
+// Two outputs from one flow:
+//   A. a private, per-subject filing count that backs a threshold credential
+//      ("I have filed at least N times") without revealing the count;
+//   B. (step 2) a public per-case counter that raises an alarm when enough
+//      independent subjects report the same admitted case.
+//
+// A filing is only accepted for a case that the oversight authority already
+// admitted. That anchor is what makes output B non-spammable: the case seal
+// stops being a free witness value and becomes a membership claim against a
+// public registry.
+//
+// ⚠️ INTEGRATION NOTE — read before wiring this to case_admission.compact.
+// Step 1 verifies membership by PURE COMPARISON against a mocked `admittedRoot`
+// ledger field, seeded through the constructor so this circuit can be built and
+// tested standalone.
+//
+// That mock MUST NOT survive integration. In case_admission.compact,
+// `admittedRoot` is explicitly a display-only mirror: the authority writes it as
+// a plain parameter and no circuit can bind it to the real tree, because
+// `root()` is runtime-only. Verifying membership against it would let the
+// authority declare any root it likes and would destroy the anti-spam guarantee
+// this contract exists to provide.
+//
+// At integration, `admittedRoot` here is replaced by the shared
+// `admittedCases: HistoricMerkleTree<20, Bytes<32>>` and the check becomes
+// `admittedCases.checkRoot(merkleTreePathRoot(path))`. The historic ADT accepts
+// past roots, so in-flight filings are not invalidated by new admissions.
+//
+// Toolchain: compactc 0.31.1 / language 0.23.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Public state ─────────────────────────────────────────────────────────────
+
+// MOCK (step 1 only — see integration note above).
+export ledger admittedRoot: MerkleTreeDigest;
+
+// One entry per (subject, case) pair that has already filed. Bound to the PAIR,
+// not just the case: it stops a single subject from inflating one case, while
+// still letting different subjects report the same case.
+export ledger spentFilingNullifiers: Set<Bytes<32>>;
+
+// One entry per (subject, presentation context). Stops a threshold proof from
+// being replayed against the same verifier.
+export ledger spentPresentationNullifiers: Set<Bytes<32>>;
+
+// ── Private inputs ───────────────────────────────────────────────────────────
+
+// The subject's only secret. Runs on their machine, never reaches the chain.
+witness subjectSecret(): Bytes<32>;
+
+// Reads the subject's private filing count. The TypeScript layer owns the
+// storage; the circuit only consumes the value.
+witness filingCount(): Uint<64>;
+
+// Bumps that private count. Called only after every check has passed, so the
+// stored count and the spent nullifiers stay in step.
+witness bumpFilingCount(): [];
+
+// ── Constructor ──────────────────────────────────────────────────────────────
+
+// `root` is public configuration of the registry, not a secret: disclosing it
+// is intentional.
+constructor(root: MerkleTreeDigest) {
+  admittedRoot = disclose(root);
+}
+
+// ── Domain-separated derivations ─────────────────────────────────────────────
+
+// Ties a filing to the (subject, case) pair.
+circuit filingNullifier(caseCommitment: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "amparo:filing-nullifier:v1"),
+    subjectSecret(),
+    caseCommitment
+  ]);
+}
+
+// Ties a threshold proof to the (subject, verifier context) pair. A separate
+// domain prefix keeps it from ever colliding with a filing nullifier.
+circuit presentationNullifier(context: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "amparo:presentation-nullifier:v1"),
+    subjectSecret(),
+    context
+  ]);
+}
+
+// ── Filing ───────────────────────────────────────────────────────────────────
+
+// Records one filing against an admitted case.
+//
+// `path` is supplied by the subject as a witness value, so it is untrusted on
+// arrival: the circuit re-derives the root from it and compares. A fabricated
+// path yields a different root and the assert fires.
+export circuit registerFiling(
+  caseCommitment: Bytes<32>,
+  path: MerkleTreePath<20, Bytes<32>>
+): [] {
+  assert(path.leaf == caseCommitment, "Path leaf does not match the case");
+  assert(merkleTreePathRoot<20, Bytes<32>>(path) == admittedRoot,
+    "Case is not in the admitted registry");
+
+  const nullifier = disclose(filingNullifier(caseCommitment));
+  assert(!spentFilingNullifiers.member(nullifier), "Subject already filed for this case");
+  spentFilingNullifiers.insert(nullifier);
+
+  bumpFilingCount();
+}
+
+// ── Threshold credential (output A) ──────────────────────────────────────────
+
+// Proves `count >= threshold` and reveals nothing else — not the real count,
+// not which cases, not who.
+//
+// Comparison is written without subtraction on purpose: `count - threshold`
+// underflows on Uint when the subject is below the bar.
+export circuit proveRepeatFilings(threshold: Uint<32>, context: Bytes<32>): Boolean {
+  const nullifier = disclose(presentationNullifier(context));
+  assert(!spentPresentationNullifiers.member(nullifier),
+    "Threshold proof already presented in this context");
+  spentPresentationNullifiers.insert(nullifier);
+
+  return disclose(filingCount() >= threshold);
+}
