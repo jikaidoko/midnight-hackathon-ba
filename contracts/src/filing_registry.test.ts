@@ -1,4 +1,4 @@
-// filing_registry.test.ts — step 1 of the filing registry, in the Compact
+// filing_registry.test.ts — the filing registry, in the Compact
 // runtime SIMULATOR. Deploy-free and prover-free: it runs circuit logic
 // (asserts, state transitions) deterministically, without generating a ZK proof
 // or touching testnet, DUST or a proof server.
@@ -22,6 +22,10 @@
 //   8. Presentation nullifier: a threshold proof cannot be replayed in the same
 //      verifier context.
 //   9. The subject's secret never appears in public state.
+//  10. Output B: the public per-case counter tracks distinct subjects.
+//  11. Counts stay isolated per case.
+//  12. A case flips to under review once the threshold is reached.
+//  13. The under-review set is idempotent past the threshold.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -55,7 +59,7 @@ const OTHER_VERIFIER_CTX = b32(0x02);
 type LedgerState = CircuitContext<SubjectPrivateState>['currentQueryContext']['state'];
 
 /** A deployed contract plus the off-chain mirror that produced its root. */
-function setup(admittedCases: Uint8Array[] = [CASE_A, CASE_B]) {
+function setup(admittedCases: Uint8Array[] = [CASE_A, CASE_B], reviewThreshold = 3n) {
   const registry = createAdmittedRegistry();
   for (const c of admittedCases) registry.admit(c);
 
@@ -66,6 +70,7 @@ function setup(admittedCases: Uint8Array[] = [CASE_A, CASE_B]) {
       COIN_PK,
     ),
     registry.root(),
+    reviewThreshold,
   );
 
   return {
@@ -256,6 +261,35 @@ test('11. the public counter is per case: filings do not leak across cases', () 
   assert.equal(l.caseReports.lookup(CASE_A).read(), 1n, 'case A untouched by the case B filing');
   assert.equal(l.caseReports.lookup(CASE_B).read(), 1n, 'case B counted on its own key');
   assert.equal(l.caseReports.size(), 2n, 'one entry per reported case');
+});
+
+test('12. output B: a case flips to under review once the threshold is reached', () => {
+  const c = setup([CASE_A], 3n);
+  const secrets = [SOFIA_SECRET, OTHER_SECRET, b32(0x70)];
+
+  let s = c.state;
+  for (const secret of secrets.slice(0, 2)) {
+    s = file(c, s, createSubjectPrivateState(secret), CASE_A, c.registry.pathFor(CASE_A)).state;
+  }
+  assert.equal(ledger(s).casesUnderReview.member(CASE_A), false, 'two reports is below the bar');
+
+  s = file(c, s, createSubjectPrivateState(secrets[2]!), CASE_A, c.registry.pathFor(CASE_A)).state;
+  const l = ledger(s);
+  assert.equal(l.caseReports.lookup(CASE_A).read(), 3n, 'three independent reports');
+  assert.equal(l.casesUnderReview.member(CASE_A), true, 'the case is now under review');
+});
+
+test('13. the under-review set is idempotent past the threshold', () => {
+  const c = setup([CASE_A], 1n);
+
+  let s = c.state;
+  for (const secret of [SOFIA_SECRET, OTHER_SECRET]) {
+    s = file(c, s, createSubjectPrivateState(secret), CASE_A, c.registry.pathFor(CASE_A)).state;
+  }
+
+  const l = ledger(s);
+  assert.equal(l.caseReports.lookup(CASE_A).read(), 2n, 'the counter keeps rising');
+  assert.equal(l.casesUnderReview.size(), 1n, 'the case is listed once, not once per report');
 });
 
 test('9. the subject secret never appears in public state', () => {

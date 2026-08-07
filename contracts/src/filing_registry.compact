@@ -2,13 +2,13 @@ pragma language_version >= 0.23;
 import CompactStandardLibrary;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Amparo — FILING REGISTRY. Step 1 (core).
+// Amparo — FILING REGISTRY. Steps 1-3 (core + public counter + review flag).
 //
 // Two outputs from one flow:
 //   A. a private, per-subject filing count that backs a threshold credential
 //      ("I have filed at least N times") without revealing the count;
-//   B. (step 2) a public per-case counter that raises an alarm when enough
-//      independent subjects report the same admitted case.
+//   B. a public per-case counter that flags a case for review once enough
+//      independent subjects have reported it.
 //
 // A filing is only accepted for a case that the oversight authority already
 // admitted. That anchor is what makes output B non-spammable: the case seal
@@ -16,7 +16,7 @@ import CompactStandardLibrary;
 // public registry.
 //
 // ⚠️ INTEGRATION NOTE — read before wiring this to case_admission.compact.
-// Step 1 verifies membership by PURE COMPARISON against a mocked `admittedRoot`
+// This contract verifies membership by PURE COMPARISON against a mocked `admittedRoot`
 // ledger field, seeded through the constructor so this circuit can be built and
 // tested standalone.
 //
@@ -37,7 +37,7 @@ import CompactStandardLibrary;
 
 // ── Public state ─────────────────────────────────────────────────────────────
 
-// MOCK (step 1 only — see integration note above).
+// MOCK (pre-integration only — see integration note above).
 export ledger admittedRoot: MerkleTreeDigest;
 
 // One entry per (subject, case) pair that has already filed. Bound to the PAIR,
@@ -53,6 +53,15 @@ export ledger spentPresentationNullifiers: Set<Bytes<32>>;
 // purpose — the subject of this count is an admitted site or incident, not a
 // person. Privacy points at the reporter; transparency points at the institution.
 export ledger caseReports: Map<Bytes<32>, Counter>;
+
+// Cases whose report count reached `reviewThreshold`. This is the flag the
+// public view watches flip live: a site moves to "under review" not because
+// anyone was identified, but because enough independent reports converged.
+export ledger casesUnderReview: Set<Bytes<32>>;
+
+// How many independent reports move a case to review. Sealed: deploy-time
+// configuration, never rewritable afterwards, and the compiler enforces it.
+sealed ledger reviewThreshold: Uint<64>;
 
 // ── Private inputs ───────────────────────────────────────────────────────────
 
@@ -71,8 +80,9 @@ witness bumpFilingCount(): [];
 
 // `root` is public configuration of the registry, not a secret: disclosing it
 // is intentional.
-constructor(root: MerkleTreeDigest) {
+constructor(root: MerkleTreeDigest, threshold: Uint<64>) {
   admittedRoot = disclose(root);
+  reviewThreshold = disclose(threshold);
 }
 
 // ── Domain-separated derivations ─────────────────────────────────────────────
@@ -122,6 +132,14 @@ export circuit registerFiling(
     caseReports.insert(caseKey, default<Counter>);
   }
   caseReports.lookup(caseKey).increment(1);
+
+  // Threshold flag. Written as `>=` on the running count rather than any
+  // subtraction: `count - threshold` underflows on Uint before the bar is met.
+  // Guarded by `member` so the set stays idempotent past the threshold.
+  if (!casesUnderReview.member(caseKey)
+      && caseReports.lookup(caseKey).read() >= reviewThreshold) {
+    casesUnderReview.insert(caseKey);
+  }
 
   // Output A. Last, so the private count never runs ahead of what is on-chain.
   bumpFilingCount();
