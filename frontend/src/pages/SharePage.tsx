@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FileText, Image, MapPin, UserRound, Lock, Building2 } from 'lucide-react'
 import { AppShell } from '../components/Layout'
 import { Card, PrimaryButton } from '../components/UI'
-import { disclosureService } from '../services/mock'
+import { disclosureService } from '../services'
 import { DEMO_ONLY_DISCLOSURE } from '../services/contracts'
 
 export default function SharePage() {

@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import type { ReporterView } from './contracts'
-import { reporterFeed } from './mock'
+import { reporterFeed } from '.'
 
 export function useReporterView(): ReporterView | null {
   const [view, setView] = useState<ReporterView | null>(() => reporterFeed.current())

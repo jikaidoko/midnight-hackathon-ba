@@ -4,7 +4,7 @@ import { Lock, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { AppShell } from '../components/Layout'
 import { Card, PrimaryButton, SecondaryButton, StatusChip } from '../components/UI'
 import { useCase } from '../services/useReporterView'
-import { chain, reportingService } from '../services/mock'
+import { titleOf, reportingService } from '../services'
 
 export default function ReportDetailPage() {
   const navigate = useNavigate()
@@ -33,7 +33,7 @@ export default function ReportDetailPage() {
   return <AppShell back>
     <section className="center page-head">
       {view.underReview ? <StatusChip status="shared"/> : <StatusChip status="sealed"/>}
-      <h1>{chain.titleOf(view.caseCommitment)}</h1>
+      <h1>{titleOf(view.caseCommitment)}</h1>
       <p>{view.caseCommitment.slice(0,16)}…</p>
     </section>
 

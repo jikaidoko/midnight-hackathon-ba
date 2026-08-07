@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/Layout'
 import { VoiceOrb } from '../components/VoiceOrb'
 import { DEMO_ONLY_VOICE } from '../services/contracts'
-import { identityService } from '../services/mock'
+import { identityService } from '../services'
 
 export default function IdentityPage() {
   const navigate = useNavigate()

@@ -13,7 +13,7 @@ import { ShieldCheck, EyeOff, AlertTriangle } from 'lucide-react'
 import { AppShell } from '../components/Layout'
 import { Card, PrimaryButton } from '../components/UI'
 import { useReporterView } from '../services/useReporterView'
-import { credentialService } from '../services/mock'
+import { credentialService } from '../services'
 
 /** Binds the proof to one verifier, so it cannot be replayed against another. */
 const VERIFIER_CONTEXT = 'autoridad-ambiental'

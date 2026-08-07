@@ -3,7 +3,7 @@ import { ShieldCheck, AlertTriangle } from 'lucide-react'
 import { AppShell } from '../components/Layout'
 import { Card, PrimaryButton, StatusChip } from '../components/UI'
 import { useReporterView } from '../services/useReporterView'
-import { chain } from '../services/mock'
+import { titleOf } from '../services'
 
 export default function ReportsPage() {
   const navigate = useNavigate()
@@ -50,7 +50,7 @@ export default function ReportsPage() {
       {view.cases.map((c, i) => <Card key={c.caseCommitment} tone={(['lavender','cream','ice','pink'] as const)[i % 4]}>
         <div className="row space">
           <div>
-            <strong>{chain.titleOf(c.caseCommitment)}</strong>
+            <strong>{titleOf(c.caseCommitment)}</strong>
             <small>{c.reports.toString()} denuncia(s) · {c.caseCommitment.slice(0,8)}…</small>
           </div>
           {c.underReview ? <StatusChip status="shared"/> : <StatusChip status="sealed"/>}

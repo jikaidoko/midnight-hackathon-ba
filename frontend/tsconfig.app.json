@@ -16,7 +16,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "baseUrl": ".",
-    "paths": { "@amparo/contracts/*": ["../contracts/src/midnight/*"] }
+    "types": ["vite/client"],
+    "paths": {
+      "@amparo/contracts/*": ["../contracts/src/midnight/*"],
+      "@amparo/generated/*": ["../contracts/src/*"]
+    }
   },
   "include": ["src"]
 }
