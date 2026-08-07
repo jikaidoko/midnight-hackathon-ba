@@ -25,7 +25,7 @@
 // and no divergence to report.
 
 import { map, type Observable } from 'rxjs';
-import { ledger, filingNullifier, type AmparoLedger } from './compiled-contract.js';
+import { ledger, filingNullifier, type AmparoLedger } from './ledger.js';
 
 /** One admitted case, as this particular reporter sees it. */
 export interface CaseView {

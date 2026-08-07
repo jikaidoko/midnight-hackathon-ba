@@ -6,11 +6,17 @@
 // fails at module load in the browser it was written for. The only place the
 // mistake is visible is the source.
 //
-// Scope is one file on purpose. `providers.ts` and `zk.ts` are Node-only by
-// design — they read keys off disk and build a wallet from a seed — and a
-// browser needs different implementations of both, not the same ones made
-// portable. `derived-state.ts` is the opposite case: it is the piece a UI
-// imports directly, so it is the piece that has to stay portable.
+// The scope is a list, not a directory sweep. `providers.ts`, `zk.ts` and
+// `config.ts` are Node-only BY DESIGN — they read keys off disk, build a wallet
+// from a seed, and parse an env file — and a browser needs different
+// implementations, not portable versions of those. Sweeping the directory would
+// flag them forever and the guard would be turned off.
+//
+// So the list names the modules a user interface imports, and adding one is a
+// deliberate act. Each was made portable by removing a dependency that arrived
+// through a convenience: `Buffer` for hex, and a `config = loadConfig()`
+// default parameter that dragged `node:path` and `process.env` into every
+// consumer that never called it.
 //
 // The guard measures its own subject. A pattern that finds nothing is not a
 // pass — an empty read, a moved file or a renamed export would all report clean
@@ -21,7 +27,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const SUBJECT = fileURLToPath(new URL('./derived-state.ts', import.meta.url));
+const SUBJECTS = [
+  // The reporter's view, and the join a UI renders from.
+  { file: 'derived-state.ts', mustExport: /export function deriveReporterView/ },
+  // Ledger decoding and the pure circuits that derive on-chain lookup keys.
+  { file: 'ledger.ts', mustExport: /export function filingNullifier/ },
+] as const;
+
+function sourceOf(file: string): string {
+  return code(readFileSync(fileURLToPath(new URL(`./${file}`, import.meta.url)), 'utf8'));
+}
 
 /** Node globals and imports that have no meaning in a browser. */
 const NODE_ONLY = [
@@ -45,30 +60,31 @@ function code(source: string): string {
     .join('\n');
 }
 
-test('the reporter view is free of Node-only APIs', () => {
-  const source = code(readFileSync(SUBJECT, 'utf8'));
-
-  for (const { name, pattern } of NODE_ONLY) {
-    assert.equal(
-      pattern.test(source),
-      false,
-      `derived-state.ts uses ${name}, which does not exist in a browser. ` +
-        'This module is imported by the UI: it has to load there.',
-    );
+test('the modules a UI imports are free of Node-only APIs', () => {
+  for (const { file } of SUBJECTS) {
+    const source = sourceOf(file);
+    for (const { name, pattern } of NODE_ONLY) {
+      assert.equal(
+        pattern.test(source),
+        false,
+        `${file} uses ${name}, which does not exist in a browser. ` +
+          'This module is imported by the UI: it has to load there.',
+      );
+    }
   }
 });
 
-test('the guard can see its subject', () => {
-  const source = code(readFileSync(SUBJECT, 'utf8'));
-
-  // Sentinel: if this export ever stops being here, every assertion above is
-  // scanning something that is no longer the reporter's view, and silence from
-  // the loop above would mean nothing.
-  assert.match(
-    source,
-    /export function deriveReporterView/,
-    'Guard is not reading the reporter view; the checks above prove nothing.',
-  );
+test('the guard can see its subjects', () => {
+  // Sentinel: if a named export stops being where the guard looks, the loop
+  // above is scanning something that is no longer the module it names, and its
+  // silence would mean nothing.
+  for (const { file, mustExport } of SUBJECTS) {
+    assert.match(
+      sourceOf(file),
+      mustExport,
+      `Guard is not reading ${file}; the checks above prove nothing about it.`,
+    );
+  }
 
   // A pattern that matches nothing anywhere is a broken pattern, not a clean
   // file. Proving each one still fires keeps the loop above honest.
