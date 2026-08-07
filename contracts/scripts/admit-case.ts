@@ -27,9 +27,9 @@ import {
   buildProviders,
   waitForSynced,
   closeWallet,
-  PRIVATE_STATE_ID,
 } from '../src/midnight/providers.js';
-import { amparoContract, ledger } from '../src/midnight/compiled-contract.js';
+import { CASE_ADMISSION } from '../src/midnight/contracts.js';
+import { amparoContract, caseLedger } from '../src/midnight/compiled-contract.js';
 import { createCaseRegistry, assertMirrorMatchesTree, toHex } from '../src/case-registry.js';
 import type { AuthorityPrivateState } from '../src/witnesses.js';
 
@@ -76,7 +76,7 @@ console.log(`New root: ${newRoot.field.toString()}`);
 
 const ctx = await buildWallet(config);
 await waitForSynced(ctx);
-const providers = await buildProviders(ctx, config);
+const providers = await buildProviders(ctx, config, CASE_ADMISSION);
 
 const privateState: AuthorityPrivateState = {
   authoritySecret: hexToBytes(deployment.authoritySecret, 'authority secret'),
@@ -90,7 +90,7 @@ const privateState: AuthorityPrivateState = {
 const contract = await findDeployedContract(providers as never, {
   contractAddress: deployment.contractAddress,
   compiledContract: amparoContract(config),
-  privateStateId: PRIVATE_STATE_ID,
+  privateStateId: CASE_ADMISSION.privateStateId,
   initialPrivateState: privateState,
 } as never);
 
@@ -106,7 +106,7 @@ console.log(`Transaction ${called.public.txId}`);
 // Read the public state back and compare the two sources.
 const rawState = await providers.publicDataProvider.queryContractState(deployment.contractAddress);
 if (!rawState) throw new Error('Contract state could not be read back after admission');
-const publicState = ledger(rawState.data);
+const publicState = caseLedger(rawState.data);
 
 console.log(`\nAdmitted count: ${publicState.admittedCount}`);
 console.log(`Mirror root:    ${publicState.admittedRoot.field.toString()}`);

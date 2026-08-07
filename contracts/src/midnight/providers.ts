@@ -36,16 +36,14 @@ import { NoOpTransactionHistoryStorage } from '@midnight-ntwrk/wallet-sdk-abstra
 import { resolve } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { loadConfig, PKG_ROOT, type CircuitId, type MidnightConfig } from './config.js';
+import { loadConfig, PKG_ROOT, type MidnightConfig } from './config.js';
 import { zkConfigProvider } from './zk.js';
-
-/** Namespace under which this contract's private state is stored. */
-export const PRIVATE_STATE_ID = 'amparo-authority';
+import { CASE_ADMISSION, type AnyCircuitId, type ContractSpec } from './contracts.js';
 
 /**
  * Directory name of the local private-state database. Must stay in sync with the
  * matching entry in the repository .gitignore: this database holds the authority
- * credential.
+ * credential and every reporter secret.
  */
 export const PRIVATE_STATE_STORE = 'midnight-level-db';
 
@@ -448,16 +446,25 @@ export function makeWalletProvider(ctx: WalletCtx, state: FacadeState) {
 // Provider set
 // ---------------------------------------------------------------------------
 
-export type AmparoProviders = MidnightProviders<CircuitId, typeof PRIVATE_STATE_ID, unknown>;
+export type AmparoProviders = MidnightProviders<AnyCircuitId, string, unknown>;
 
-/** Assembles the full provider set from a wallet that has finished syncing. */
+/**
+ * Assembles the full provider set from a wallet that has finished syncing.
+ *
+ * `spec` decides one thing only: which contract's keys the ZK and proof
+ * providers read. Everything else - wallet, indexer, private-state store - is
+ * shared, and the private-state NAMESPACE is chosen per call by the contract
+ * layer rather than here, so one provider set can serve both contracts as long
+ * as it was built for the one whose circuit is about to be proved.
+ */
 export async function buildProviders(
   ctx: WalletCtx,
   config: MidnightConfig = loadConfig(),
+  spec: ContractSpec = CASE_ADMISSION,
 ): Promise<AmparoProviders> {
   const state = await waitForSynced(ctx);
   const walletProvider = makeWalletProvider(ctx, state);
-  const zk = zkConfigProvider(config);
+  const zk = zkConfigProvider(spec, config);
 
   return {
     privateStateProvider: levelPrivateStateProvider({

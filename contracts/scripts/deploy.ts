@@ -33,8 +33,8 @@ import {
   buildProviders,
   waitForSynced,
   closeWallet,
-  PRIVATE_STATE_ID,
 } from '../src/midnight/providers.js';
+import { CASE_ADMISSION } from '../src/midnight/contracts.js';
 import { amparoContract, authorityCommitment } from '../src/midnight/compiled-contract.js';
 import { createCaseRegistry, toHex } from '../src/case-registry.js';
 import type { AuthorityPrivateState } from '../src/witnesses.js';
@@ -62,15 +62,15 @@ const ctx = await buildWallet(config);
 const state = await waitForSynced(ctx);
 console.log(`Wallet synced:        ${state.shielded.coinPublicKey.toHexString().slice(0, 24)}...`);
 
-const providers = await buildProviders(ctx, config);
+const providers = await buildProviders(ctx, config, CASE_ADMISSION);
 
 const initialPrivateState: AuthorityPrivateState = { authoritySecret };
 
 console.log('\nDeploying (this generates the constructor proof)...');
 const deployed = await deployContract(providers as never, {
-  compiledContract: amparoContract() as never,
+  compiledContract: amparoContract(config) as never,
   args: [commitment, genesisRoot],
-  privateStateId: PRIVATE_STATE_ID,
+  privateStateId: CASE_ADMISSION.privateStateId,
   initialPrivateState,
 } as never);
 

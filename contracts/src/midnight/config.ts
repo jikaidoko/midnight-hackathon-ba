@@ -20,8 +20,12 @@ export interface MidnightConfig {
   nodeUrl: string;
   /** Hex seed of the wallet. Secret on any funded network. */
   walletSeed: string;
-  /** Directory of the compiled contract; holds `keys/` and `zkir/`. */
-  contractDir: string;
+  /**
+   * Root of the compiler output: one subdirectory per contract, each holding
+   * `keys/`, `zkir/` and `contract/`. Which subdirectory a script uses comes
+   * from its `ContractSpec`, not from here - there is more than one contract.
+   */
+  managedDir: string;
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // .../src/midnight
@@ -52,20 +56,6 @@ function loadDotEnv(): void {
 export const LOCAL_GENESIS_SEED =
   '0000000000000000000000000000000000000000000000000000000000000001';
 
-/** Name of the compiled contract directory under `src/managed/`. */
-export const CONTRACT_NAME = 'case_admission';
-
-/**
- * Circuit ids of the contract. These are the keys under which prover and
- * verifier keys are stored on disk, so they must match the exported circuits of
- * the `.compact` source exactly.
- *
- * Only circuits that produce a proof are listed: `authorityDigest` is a pure
- * circuit and has no keys.
- */
-export const CIRCUIT_IDS = ['admitCase'] as const;
-export type CircuitId = (typeof CIRCUIT_IDS)[number];
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MidnightConfig {
   loadDotEnv();
 
@@ -83,7 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MidnightConfig
     // On a public network it stays empty so the caller gets an explicit error
     // instead of silently building a wallet nobody funded.
     walletSeed: seed !== '' ? seed : isLocal ? LOCAL_GENESIS_SEED : '',
-    contractDir: env.MN_CONTRACT_DIR ?? resolve(PKG_ROOT, 'src', 'managed', CONTRACT_NAME),
+    managedDir: env.MN_MANAGED_DIR ?? resolve(PKG_ROOT, 'src', 'managed'),
   };
 }
 
@@ -94,6 +84,6 @@ export function describe(config: MidnightConfig): string {
     `node:     ${config.nodeUrl}`,
     `indexer:  ${config.indexerUrl}`,
     `proof:    ${config.proofServerUrl}`,
-    `contract: ${config.contractDir}`,
+    `managed:  ${config.managedDir}`,
   ].join('\n');
 }
