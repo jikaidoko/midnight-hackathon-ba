@@ -1,7 +1,7 @@
-# Normalizacion de fin de linea. Este archivo DEBE existir antes del primer `git
-# add`: si se agrega despues, los archivos ya indexados quedan con CRLF y copiarlos
-# de nuevo no alcanza — hace falta `git add --renormalize .`, porque el archivo de
-# trabajo no cambia y git no re-indexa.
+# Line-ending normalization. This file MUST exist before the first `git add`:
+# if it is added later, already-indexed files keep CRLF and re-copying them is
+# not enough - it takes `git add --renormalize .`, because the working file did
+# not change and git will not re-index it.
 * text=auto eol=lf
 
 *.compact text eol=lf
@@ -10,8 +10,8 @@
 *.md      text eol=lf
 *.yml     text eol=lf
 
-# Artefactos del compilador Compact (hoy ignorados; la regla queda por si algun
-# dia se versiona una clave o un zkir).
+# Compact compiler artifacts. Currently ignored; the rule stands in case a key
+# or a zkir is ever versioned.
 *.prover   binary
 *.verifier binary
 *.zkir     binary

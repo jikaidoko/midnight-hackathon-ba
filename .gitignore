@@ -4,8 +4,11 @@ dist/
 .env.*
 !.env.example
 
-# Salida del compilador Compact (regenerable con `npm run compile`).
+# Compact compiler output (regenerate with `npm run compile`).
 contracts/src/managed/
 
-# Hook de gentle-ai: se crea solo y no se auto-ignora.
+# Local working notes. Deliberately untracked.
+CLAUDE.md
+
+# Created automatically by an editor hook; does not ignore itself.
 .atl/

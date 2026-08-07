@@ -1,20 +1,20 @@
-# Amparo — canal de denuncias con privacidad
+# Amparo - private whistleblowing channel
 
-Midnight Hackathon Buenos Aires · 7–8 de agosto de 2026.
+Midnight Hackathon Buenos Aires, August 7-8 2026.
 
-Una persona denuncia un caso sin revelar quién es, y aun así el sistema puede
-probar dos cosas que hoy exigen exponer al denunciante: que el caso fue **admitido
-por una autoridad** de control, y que esa persona **ya denunció N veces** — sin
-decir cuántas, ni cuáles, ni quién.
+Someone reports a case without revealing who they are, and the system can still
+prove two things that today require exposing the reporter: that the case was
+**admitted by a control authority**, and that this person **has already filed N
+times** - without saying how many, which ones, or who.
 
-## Estructura
+## Layout
 
-| Ruta | Qué es |
+| Path | What it is |
 |---|---|
-| `contracts/` | Circuitos Compact y su capa TypeScript |
-| `contracts/src/case_admission.compact` | Primitiva de admisión de casos |
-| `contracts/src/case-registry.ts` | Espejo off-chain del padrón + guard de alineación |
-| `contracts/src/*.test.ts` | Tests del simulador (sin proof server) |
+| `contracts/` | Compact circuits and their TypeScript layer |
+| `contracts/src/case_admission.compact` | Case admission primitive |
+| `contracts/src/case-registry.ts` | Off-chain registry mirror + alignment guard |
+| `contracts/src/*.test.ts` | Simulator tests (no proof server) |
 
 ## Toolchain
 
@@ -22,28 +22,29 @@ decir cuántas, ni cuáles, ni quién.
 - `@midnight-ntwrk/compact-runtime` **0.16.0**
 - Node 22
 
-El compilador corre en WSL; los tests corren en Node nativo de Windows.
+The compiler runs under WSL; the tests run on native Windows Node.
 
-## Correr
+## Running
 
 ```bash
 cd contracts
 npm install
-npm run compile      # genera src/managed/ con claves prover/verifier
-npm test             # tests del simulador
+npm run compile      # emits src/managed/ with prover/verifier keys
+npm test             # simulator tests
 npm run typecheck
 ```
 
-`npm run compile:fast` saltea la generación de claves ZK (`--skip-zk`): sirve para
-el loop rápido mientras se itera el circuito.
+`npm run compile:fast` skips ZK key generation (`--skip-zk`); use it for the fast
+loop while iterating on the circuit.
 
-## Decisiones que conviene saber antes de leer el código
+## Decisions worth knowing before reading the code
 
-- **`root()` del ADT MerkleTree es runtime-only.** Verificado contra compactc
+- **The MerkleTree ADT's `root()` is runtime-only.** Verified against compactc
   0.31.0: `MerkleTree root is a runtime-only method, but was invoked in-circuit`.
-  Si un circuito necesita publicar la root nueva, entra como parámetro.
-- **El padrón es `HistoricMerkleTree`, no `MerkleTree`.** `MerkleTree.checkRoot()`
-  acepta solo la root actual, así que cada admisión invalidaría el path de todos
-  los casos ya admitidos. El ADT histórico acepta roots pasadas.
-- **`admittedRoot` es un espejo display-only.** Nadie verifica contra él. La
-  verificación de pertenencia va siempre por `admittedCases.checkRoot(...)`.
+  If a circuit needs to publish the new root, it has to arrive as a parameter.
+- **The registry is a `HistoricMerkleTree`, not a `MerkleTree`.**
+  `MerkleTree.checkRoot()` accepts only the current root, so every admission
+  would invalidate the inclusion path of every already admitted case. The
+  historic ADT accepts past roots.
+- **`admittedRoot` is a display-only mirror.** Nothing verifies against it.
+  Membership always goes through `admittedCases.checkRoot(...)`.
