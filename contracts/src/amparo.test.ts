@@ -42,6 +42,17 @@
 //  22. THE POINT OF UNIFYING — no input to `admitCase` can influence the root.
 //      Replaces the old "mirror guard" case, whose attack surface is deleted
 //      rather than defended.
+//  23. Response happy path: an escalated case can be answered, on the record.
+//  24. ADVERSARIAL — the control body cannot answer a case the public never
+//      watched escalate. This is what stops a pre-emptive dismissal.
+//  25. ADVERSARIAL — an impostor cannot answer.
+//  26. An answer is written once and never rewritten.
+//  27. THE OBSERVABLE — silence is publicly legible. An escalated case with no
+//      entry is the evidence the whole circuit exists to produce.
+//  28. Dismissal costs the same record as any other answer.
+//  29. A reporter cannot answer.
+//  30. KNOWN LIMITATION, asserted — one answer per case means a body that later
+//      changes its mind has nowhere to say so.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -52,7 +63,7 @@ import {
   type CircuitContext,
 } from '@midnight-ntwrk/compact-runtime';
 import {
-  Contract, ledger, pureCircuits,
+  Contract, ledger, pureCircuits, ResponseKind,
   type Ledger, type Witnesses,
 } from './managed/amparo/contract/index.js';
 import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
@@ -138,6 +149,17 @@ function setup(
     return out.result;
   };
 
+  const respond = (
+    kase: Uint8Array,
+    kind: ResponseKind = ResponseKind.investigation,
+    reason = 'Grounds stated in public.',
+    secret: Uint8Array = AUTHORITY,
+  ) => {
+    const ctx = createCircuitContext(addr, COIN_PK, state, createAuthorityState(secret));
+    state = contract.circuits.respondToCase(ctx, kase, kind, reason).context
+      .currentQueryContext.state as LedgerState;
+  };
+
   for (const kase of admitted) admit(kase);
 
   return {
@@ -146,9 +168,15 @@ function setup(
     admit,
     file,
     present,
+    respond,
     l: () => ledger(state),
     raw: () => state,
   };
+}
+
+/** Drives a case over the review threshold with three distinct reporters. */
+function escalate(e: ReturnType<typeof setup>, kase: Uint8Array): void {
+  for (const who of [SOFIA, OTHER, THIRD]) e.file(who, kase);
 }
 
 type Env = ReturnType<typeof setup>;
@@ -539,4 +567,133 @@ test('22. THE POINT: no input to admitCase can influence the registry root', () 
 
   // The registry only ever grows through the gate.
   assert.equal(a.l().admittedCount, 3n);
+});
+
+// ── Response ─────────────────────────────────────────────────────────────────
+
+test('23. happy path: an escalated case can be answered, on the record', () => {
+  const e = setup();
+  escalate(e, CASE_A);
+
+  assert.equal(e.l().caseResponses.member(CASE_A), false, 'no answer yet');
+  e.respond(CASE_A, ResponseKind.investigation, 'Opened case file 41/2026.');
+
+  const recorded = e.l().caseResponses.lookup(CASE_A);
+  assert.equal(recorded.kind, ResponseKind.investigation);
+  assert.equal(recorded.reason, 'Opened case file 41/2026.', 'the grounds are on chain verbatim');
+});
+
+test('24. ADVERSARIAL: a case below the threshold cannot be answered', () => {
+  // The guard that matters most. Without it the control body dismisses a case
+  // at one filing, and the public record then shows a prompt answer to an
+  // escalation nobody ever saw happen — the appearance of oversight, produced
+  // by acting before anyone was watching.
+  const e = setup();
+  e.file(SOFIA, CASE_A);
+  e.file(OTHER, CASE_A); // two: one short of the bar
+
+  assert.equal(e.l().casesUnderReview.member(CASE_A), false);
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.dismissal, 'Nothing to see here.'),
+    /has not reached the review threshold/,
+  );
+  assert.equal(e.l().caseResponses.isEmpty(), true, 'nothing was written');
+
+  // The third filing escalates it, and the same answer is now recordable.
+  e.file(THIRD, CASE_A);
+  e.respond(CASE_A, ResponseKind.dismissal, 'Nothing to see here.');
+  assert.equal(e.l().caseResponses.member(CASE_A), true);
+});
+
+test('25. ADVERSARIAL: an impostor cannot answer', () => {
+  const e = setup();
+  escalate(e, CASE_A);
+
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.dismissal, 'Signed, nobody.', IMPOSTOR),
+    /Unrecognized authority/,
+  );
+  assert.equal(e.l().caseResponses.isEmpty(), true, 'nothing was written');
+});
+
+test('26. an answer is written once and never rewritten', () => {
+  const e = setup();
+  escalate(e, CASE_A);
+  e.respond(CASE_A, ResponseKind.dismissal, 'Insufficient grounds.');
+
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.investigation, 'On reflection, opening it.'),
+    /already has a recorded response/,
+  );
+
+  const recorded = e.l().caseResponses.lookup(CASE_A);
+  assert.equal(recorded.kind, ResponseKind.dismissal, 'the first answer stands');
+  assert.equal(recorded.reason, 'Insufficient grounds.');
+});
+
+test('27. THE OBSERVABLE: silence is publicly legible', () => {
+  // The point of the whole circuit, asserted as the thing a client computes.
+  // Nothing here needs a secret: the backlog is derivable by anyone with the
+  // public state, which is what makes inaction impossible to deny.
+  const e = setup();
+  escalate(e, CASE_A);
+  escalate(e, CASE_B);
+  e.respond(CASE_B, ResponseKind.referral, 'Referred to the labour inspectorate.');
+
+  const l = e.l();
+  const unanswered = [...l.casesUnderReview].filter((k) => !l.caseResponses.member(k));
+
+  assert.equal(l.casesUnderReview.size(), 2n);
+  assert.equal(unanswered.length, 1, 'exactly one escalated case is unanswered');
+  assert.equal(toHex(unanswered[0] as Uint8Array), toHex(CASE_A));
+});
+
+test('28. dismissal costs the same public record as any other answer', () => {
+  // Dismissing is allowed on purpose. What is not allowed is dismissing
+  // quietly: the record it leaves is the same size and shape as an
+  // investigation, and it carries stated grounds either way.
+  const e = setup();
+  escalate(e, CASE_A);
+  escalate(e, CASE_B);
+
+  e.respond(CASE_A, ResponseKind.investigation, 'Grounds: converging reports.');
+  e.respond(CASE_B, ResponseKind.dismissal, 'Grounds: outside our jurisdiction.');
+
+  const l = e.l();
+  assert.equal(l.caseResponses.size(), 2n);
+  assert.equal(l.caseResponses.lookup(CASE_B).kind, ResponseKind.dismissal);
+  assert.notEqual(l.caseResponses.lookup(CASE_B).reason, '', 'a dismissal states grounds too');
+});
+
+test('29. a reporter cannot answer', () => {
+  const e = setup();
+  escalate(e, CASE_A);
+
+  const ctx = createCircuitContext(e.addr, COIN_PK, e.raw(), createSubjectState(SOFIA));
+  assert.throws(
+    () => e.contract.circuits.respondToCase(ctx, CASE_A, ResponseKind.dismissal, 'Not mine to make.'),
+    /needs the authority's secret/,
+  );
+});
+
+test('30. KNOWN LIMITATION: one answer per case, so a later change of mind has nowhere to go', () => {
+  // Asserted rather than commented, for the same reason as 18: the permanence
+  // that makes a dismissal costly also means an investigation that later closes
+  // cannot be updated here. A body that changes its mind has to say so
+  // somewhere this contract does not reach. Recording the sequence instead of
+  // the verdict would need an append-only structure, which is a different
+  // design and not the one on record.
+  const e = setup();
+  escalate(e, CASE_A);
+  e.respond(CASE_A, ResponseKind.investigation, 'Opened.');
+
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.dismissal, 'Closed after investigating.'),
+    /already has a recorded response/,
+  );
+  assert.equal(
+    e.l().caseResponses.lookup(CASE_A).kind,
+    ResponseKind.investigation,
+    'the chain still says "investigating" forever',
+  );
 });

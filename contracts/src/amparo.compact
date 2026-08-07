@@ -99,6 +99,33 @@ export ledger caseReports: Map<Bytes<32>, Counter>;
 // identified, but because enough independent reports converged.
 export ledger casesUnderReview: Set<Bytes<32>>;
 
+// ── Public state: the control body's answer ──────────────────────────────────
+
+// What the control body did about a case that reached the threshold.
+//
+// A fixed taxonomy rather than a free-form code, because an unconstrained value
+// lets the body record an answer no interface can name — which is the same
+// silence this state exists to remove, wearing a different mask.
+export enum ResponseKind { investigation, referral, dismissal }
+
+// One answer, as recorded. `reason` is public on purpose: a dismissal with no
+// stated grounds is precisely what this makes impossible.
+export struct CaseResponse {
+  kind: ResponseKind,
+  reason: Opaque<"string">
+}
+
+// The answer to each escalated case.
+//
+// The interesting observable is the ABSENCE of an entry. A case that crossed
+// the threshold and is missing from this map is public, permanent evidence that
+// the control body was told and said nothing — which is the asymmetry the rest
+// of this contract could not reach on its own. Escalation was already public
+// and permanent; the response was a button in somebody's private dashboard.
+// That made the reporters accountable and the institution not, backwards for a
+// tool whose whole purpose points the other way.
+export ledger caseResponses: Map<Bytes<32>, CaseResponse>;
+
 // How many independent reports move a case to review. Sealed: deploy-time
 // configuration, never rewritable afterwards, and the compiler enforces it.
 //
@@ -242,6 +269,50 @@ export circuit registerFiling(caseCommitment: Bytes<32>): [] {
       && caseReports.lookup(caseKey).read() >= reviewThreshold) {
     casesUnderReview.insert(caseKey);
   }
+}
+
+// ── Response ─────────────────────────────────────────────────────────────────
+
+// The control body's answer to a case the reporters escalated.
+//
+// Nothing here is optional or private. The body cannot answer quietly, cannot
+// answer twice, and cannot answer a case the public did not watch escalate.
+// Dismissal is a first-class option on purpose: the goal is not to force a
+// particular decision, it is to make every decision — including doing nothing
+// about it — cost the same public, permanent record.
+//
+// Three guards, and the ORDER is load-bearing:
+//   1. authority, so an impostor never reaches the state at all;
+//   2. under review, so the body cannot pre-empt a case before the threshold
+//      and leave a record that reads like a timely response to an escalation
+//      the public never saw;
+//   3. not already answered, so the record is written once and never rewritten.
+//
+// Answering is deliberately NOT possible below the threshold. A body that wants
+// to act sooner still can — in the world, where oversight actually happens. What
+// it cannot do is get the chain to say it did.
+export circuit respondToCase(
+  caseCommitment: Bytes<32>,
+  kind: ResponseKind,
+  reason: Opaque<"string">
+): [] {
+  assertAuthority();
+
+  const caseKey = disclose(caseCommitment);
+
+  assert(casesUnderReview.member(caseKey),
+    "Case has not reached the review threshold");
+  assert(!caseResponses.member(caseKey),
+    "Case already has a recorded response");
+
+  // Both fields are parameters heading for public state, so both need their own
+  // `disclose`. Neither is decorative: the compiler rejects the write without
+  // them, which is the same rule that makes every parameter of an exported
+  // circuit a witness value until it is explicitly let out.
+  caseResponses.insert(caseKey, CaseResponse {
+    kind: disclose(kind),
+    reason: disclose(reason)
+  });
 }
 
 // ── Threshold credential (output A) ──────────────────────────────────────────
