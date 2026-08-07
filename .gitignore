@@ -12,3 +12,25 @@ CLAUDE.md
 
 # Created automatically by an editor hook; does not ignore itself.
 .atl/
+
+# --- Local network and wallet state -----------------------------------------
+# Everything below is machine-local: it is either sensitive, or expensive to
+# rebuild but meaningless on another machine. None of it belongs in the repo.
+
+# Wallet sync state. Restoring it is what turns a multi-hour sync into an
+# incremental one, so it is worth keeping on the machine that will deploy - and
+# worth never publishing, since it describes a specific wallet's history.
+contracts/.wallet-state/
+
+# Cached public proving parameters (~33 MB), downloaded on first proof.
+contracts/.zk-params/
+
+# Local private-state database. Holds the authority credential. The name is set
+# in src/midnight/providers.ts (PRIVATE_STATE_STORE); the second entry covers the
+# library default, so a version that stops honouring the setting cannot quietly
+# write a credential store into a tracked path.
+contracts/midnight-level-db/
+contracts/.midnight-leveldb/
+
+# Deployment records. They carry the authority secret of the deployment.
+contracts/deployment.*.json

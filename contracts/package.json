@@ -9,14 +9,73 @@
     "compile": "compact compile src/case_admission.compact src/managed/case_admission",
     "compile:fast": "compact compile --skip-zk src/case_admission.compact src/managed/case_admission",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mn:up": "docker compose -f docker-compose.midnight.yml up -d",
+    "mn:down": "docker compose -f docker-compose.midnight.yml down -v",
+    "mn:logs": "docker compose -f docker-compose.midnight.yml logs -f",
+    "mn:health": "node scripts/mn-health.mjs",
+    "proof-server": "docker compose -f docker-compose.midnight.yml up -d proof-server",
+    "check-wallet": "tsx scripts/check-wallet.ts",
+    "deploy": "tsx scripts/deploy.ts",
+    "admit-case": "tsx scripts/admit-case.ts"
   },
   "dependencies": {
-    "@midnight-ntwrk/compact-runtime": "0.16.0"
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/midnight-js-contracts": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "^4.1.1",
+    "@midnight-ntwrk/wallet-sdk": ">=1.2.0 <2",
+    "@midnight-ntwrk/wallet-sdk-abstractions": "^2.1.0",
+    "@midnight-ntwrk/wallet-sdk-dust-wallet": "^4.1.0",
+    "@midnight-ntwrk/wallet-sdk-facade": "^4.1.0",
+    "@midnight-ntwrk/wallet-sdk-hd": "^3.0.2",
+    "@midnight-ntwrk/wallet-sdk-shielded": "^3.0.2",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "^3.1.0",
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
-  }
+  },
+  "overrides": {
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  },
+  "comment:dependencies": [
+    "compact-runtime is pinned exactly to the runtime-version reported by",
+    "src/managed/case_admission/compiler/contract-info.json. The generated code imports",
+    "from this package, and Midnight releases move fast enough that a caret range here",
+    "would eventually pair generated code with a runtime it was not compiled against.",
+    "",
+    "wallet-sdk requires >=1.2.0. Earlier versions leave the in-flight sync queue",
+    "effectively uncapped, so a wallet scanning a public chain from genesis grows until",
+    "the process dies with a heap out-of-memory error, minutes into a sync that looks",
+    "healthy until it stops. 1.2.0 exposes the caps that providers.ts sets. Do not relax",
+    "this bound.",
+    "",
+    "shielded >=3.0.2 and facade >=4.1.0 are what expose those caps, so they move",
+    "together with wallet-sdk 1.2.",
+    "",
+    "The `overrides` block collapses the two WebAssembly packages to ONE copy each, and it",
+    "is load-bearing. Each carries its own wasm instance owning its own classes, so an object",
+    "built by one copy fails the other's internal type check: 'expected instance of",
+    "LedgerParameters' and 'expected instance of StateValue'. Both surface from inside a",
+    "dependency, during a deployment, with nothing pointing at the duplication.",
+    "",
+    "The duplication happens because midnight-js-protocol pins these two exactly (8.1.0 and",
+    "3.0.0) while everything else asks for a caret range, so npm nests a second copy the",
+    "moment a newer patch exists. The pinned versions satisfy every other declared range, so",
+    "the override picks a winner rather than forcing an unsupported combination.",
+    "",
+    "Verify after any dependency change: `npm ls @midnight-ntwrk/ledger-v8` and",
+    "`npm ls @midnight-ntwrk/onchain-runtime-v3` must each report a single version. Neither",
+    "typecheck nor the simulator tests can see this - they never build a transaction."
+  ]
 }
