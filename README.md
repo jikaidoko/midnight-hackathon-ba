@@ -18,14 +18,14 @@ times** - without saying how many, which ones, or who.
 | `contracts/src/merkle-mirror.ts` | Merkle mirror the client rebuilds to produce paths |
 | `contracts/src/verifier.ts` | Off-chain second source for a presented root |
 | `contracts/src/witnesses.ts`, `filing-witnesses.ts` | Private inputs the circuits read |
-| `contracts/src/midnight/` | Network configuration, wallet, providers |
-| `contracts/scripts/` | Health check, wallet check, deploy, admit |
+| `contracts/src/midnight/` | Network configuration, wallet, providers, contract descriptors |
+| `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present |
 | `contracts/src/*.test.ts` | Simulator tests (no proof server) |
 | `contracts/test/` | End-to-end product journey and the test strategy |
 | `contracts/docker-compose.midnight.yml` | Local standalone network |
 
-The network scripts under `contracts/scripts/` drive the **admission** contract
-only. The filing registry has simulator coverage but no deployment path yet.
+Both contracts have a deployment path. Both have been exercised against a running
+chain with real proofs, not only in the simulator.
 
 ## Toolchain
 
@@ -48,6 +48,13 @@ npm run typecheck
 `npm run compile:fast` skips ZK key generation (`--skip-zk`); use it for the fast
 loop while iterating on the circuit.
 
+**Recompile after every pull.** `src/managed/` is gitignored, so a pull that
+changes a `.compact` source leaves your compiled contract behind and the tests
+run against the old one. The failure is convincing: real assertions fail with
+`Missing expected exception`, pointing at circuits that are in fact correct. If a
+test that should pass is red and you have just pulled, run `npm run compile`
+before reading anything else.
+
 ## Running against a network
 
 Everything below works offline against a local chain. No testnet, no faucet: the
@@ -58,10 +65,51 @@ cd contracts
 npm run mn:up          # start node, indexer and proof server
 npm run mn:health      # confirm all three answer
 npm run check-wallet   # confirm the wallet builds and syncs
-npm run deploy         # deploy; generates the constructor proof
+npm run deploy         # deploy case admission; generates the constructor proof
 npm run admit-case     # admit one case end to end
 npm run mn:down        # stop, and DELETE the chain state
 ```
+
+### The reporter path
+
+The filing registry is constructed with the admitted root, so it is deployed
+**after** the cases the demo will use are already admitted. See below for why.
+
+```bash
+npm run admit-case -- <64 hex>                     # once per demo case
+npm run deploy-filing                              # threshold 3; freezes the root
+npm run file-report -- <64 hex> --subject sofia    # one report, one reporter
+npm run prove-credential -- --subject sofia --context "ministry-of-labour"
+```
+
+`--subject` names the reporter. Each one gets their own secret and their own
+private-state namespace, created on first use in `contracts/subjects.<network>.json`
+- gitignored, because every filing derives from those secrets and nothing on
+chain links a filing to anyone. That file is also where the client records which
+cases a reporter filed against: the chain deliberately does not know, so without
+it a credential can never be rebuilt. That is the privacy property working, not a
+gap.
+
+The threshold comes from the deployment record rather than the chain.
+`reviewThreshold` is `sealed`, and a sealed field is absent from the generated
+`Ledger` projection: the circuit reads it, no client can.
+
+### The two contracts are not yet integrated, and it shows here
+
+`filing_registry` receives the admitted root as a constructor argument and the
+field is written once. Deploying it **freezes** whatever `admittedCases.root()`
+is at that moment, so a case admitted afterwards can never be filed against: its
+Merkle path reaches the new root and the circuit compares against the frozen one.
+
+`file-report` checks for this before building a proof and says so in those words,
+because the circuit's own error - `Case is not in the admitted registry` - reads
+like the case is unknown when it is merely newer. Redeploying the filing registry
+re-freezes the current root.
+
+This disappears when the two contracts become one, where the circuit can check
+the path against the live tree with `admittedCases.checkRoot(...)` instead of
+against a value copied at construction time. Until then: admit first, deploy
+second.
 
 Configuration is entirely environmental, with defaults pointing at the local
 network - copy `contracts/.env.example` to `contracts/.env` only when you need to
