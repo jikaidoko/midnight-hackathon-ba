@@ -1,0 +1,115 @@
+pragma language_version >= 0.23;
+import CompactStandardLibrary;
+
+// ----------------------------------------------------------------------------
+// Case admission - the trust root of the private whistleblowing channel.
+//
+// Everything downstream depends on this: a case can only receive filings if a
+// control-body AUTHORITY admitted it first. That is what makes the public
+// aggregate non-spammable. Without it, the seal of a filing would be an
+// unconstrained witness and a single identity could inflate the aggregate with
+// unlimited fresh seals.
+//
+// Midnight paradigm (NOT eUTXO): secrets enter through `witness`, never touch
+// the chain nor the proof; writing public state requires an explicit
+// `disclose(...)`. Proving is necessarily client-side.
+//
+// Toolchain: compactc 0.31.0 / language 0.23.0 / runtime 0.16.0.
+// ----------------------------------------------------------------------------
+
+// ---- Public state ----------------------------------------------------------
+
+// Registry of admitted cases.
+//
+// This is a HistoricMerkleTree and not a plain MerkleTree for a reason measured
+// against the compiler: `MerkleTree.checkRoot()` accepts ONLY the current root,
+// so every new admission would invalidate the inclusion path of every already
+// admitted case and force every filer to re-fetch their path first. The historic
+// ADT keeps past roots and keeps accepting them, which is exactly the guarantee
+// the filing circuit needs downstream.
+export ledger admittedCases: HistoricMerkleTree<20, Bytes<32>>;
+
+// WARNING - DISPLAY-ONLY MIRROR. The root the authority declares when admitting,
+// so the UI can show it change live. It is NOT a source of truth and nothing
+// must ever verify against it: the ADT's `root()` is runtime-only (verified
+// against compactc 0.31.0: "MerkleTree root is a runtime-only method, but was
+// invoked in-circuit"), so this value arrives as a parameter and the circuit
+// cannot bind it to the real tree. Membership is ALWAYS verified through
+// `admittedCases.checkRoot(...)`. Drift between mirror and tree is detected
+// off-chain - see `assertMirrorMatchesTree` in case-registry.ts.
+export ledger admittedRoot: MerkleTreeDigest;
+
+// Already admitted cases, so the same admission cannot enter the tree twice.
+// This is hygiene of the registry and the counter, not a security guarantee:
+// admitting the same case twice grants the authority no extra power.
+export ledger admittedIndex: Set<Bytes<32>>;
+
+// Public aggregate: how many cases the control body admitted. Identifies nobody.
+export ledger admittedCount: Counter;
+
+// Commitment of the admitting authority: H(domain, secret). Public and opaque;
+// proving knowledge of the preimage is what gates `admitCase`.
+export ledger authorityCommitment: Bytes<32>;
+
+// ---- Witness: PRIVATE input, implemented in TS, never on-chain --------------
+
+// Secret of the control-body authority. Never revealed: the circuit only proves
+// that its digest matches the published commitment.
+witness authoritySecret(): Bytes<32>;
+
+// ---- Pure helpers ----------------------------------------------------------
+
+// Domain-separated authority digest. Exported so deployment can compute
+// `authorityCommitment` with EXACTLY the same hashing the circuit recomputes;
+// reimplementing it in TypeScript would yield a commitment that never matches.
+export pure circuit authorityDigest(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "amparo:authority:v1"),
+    secret
+  ]);
+}
+
+// ---- Constructor -----------------------------------------------------------
+
+// `authority` is the authority's public commitment (not its secret), and
+// `genesisRoot` is the root of the empty tree, so the mirror is honest from
+// block 0 instead of starting at a meaningless default. `disclose` declares that
+// publishing both is intentional: they are public configuration of the registry,
+// not secrets.
+constructor(authority: Bytes<32>, genesisRoot: MerkleTreeDigest) {
+  authorityCommitment = disclose(authority);
+  admittedRoot = disclose(genesisRoot);
+}
+
+// ---- Authority gate --------------------------------------------------------
+
+// Proves knowledge of the authority secret without revealing it. The digest is
+// compared against the ledger inside an assert: no public write of the private
+// value happens, which is why it needs no `disclose` of its own.
+circuit assertAuthority(): [] {
+  assert(authorityDigest(authoritySecret()) == authorityCommitment,
+    "Unrecognized authority");
+}
+
+// ---- Admission -------------------------------------------------------------
+
+// Admits a case into the registry. `caseCommitment` is opaque - the control body
+// builds it off-chain from the case file - so the contract learns nothing about
+// the case beyond its commitment.
+//
+// `newRoot` is the display-only mirror described above. The circuit CANNOT
+// verify it: `root()` is runtime-only. It grants the authority no extra power,
+// since the authority already decides what enters the tree, but an off-chain
+// computation error would leave the mirror silently misaligned. That is why the
+// TypeScript wrapper compares mirror against real tree after every admission.
+export circuit admitCase(caseCommitment: Bytes<32>, newRoot: MerkleTreeDigest): [] {
+  assertAuthority();
+
+  const leaf = disclose(caseCommitment);
+  assert(!admittedIndex.member(leaf), "Case already admitted");
+
+  admittedIndex.insert(leaf);
+  admittedCases.insert(leaf);
+  admittedRoot = disclose(newRoot);
+  admittedCount.increment(1);
+}
