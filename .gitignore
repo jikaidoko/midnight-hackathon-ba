@@ -40,3 +40,7 @@ contracts/deployment.*.json
 # deliberately does not link a filing to anyone. Committing this file would
 # publish exactly the identities the contract exists to protect.
 contracts/subjects.*.json
+# The atomic-write temporary. It holds the same secrets in full, and it is what
+# survives a process killed mid-write - so it needs its own entry: the pattern
+# above ends in `.json` and does not match it.
+contracts/subjects.*.json.tmp

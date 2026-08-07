@@ -52,7 +52,6 @@ if (!existsSync(caseFile)) {
 }
 const caseDeployment = JSON.parse(readFileSync(caseFile, 'utf8')) as {
   contractAddress: string;
-  admittedCases: string[];
 };
 
 const [thresholdArg] = positionals();
@@ -61,6 +60,21 @@ if (threshold < 1n) throw new Error(`review threshold must be at least 1 (got ${
 
 console.log(describe(config));
 console.log(`\nCase admission: ${caseDeployment.contractAddress}`);
+
+// Redeploying strands every filing already made against the previous registry.
+// The nullifier tree lives inside the contract, so a new deployment starts
+// empty: those filings stay on chain, stay the reporter's, and stop being able
+// to back a credential here. `file-report` offers a redeploy as the remedy for
+// a diverged root, so this is reachable by following the instructions - it is
+// worth saying out loud BEFORE the deploy proof rather than after.
+if (existsSync(filingFile)) {
+  const previous = JSON.parse(readFileSync(filingFile, 'utf8')) as { contractAddress?: string };
+  console.log(
+    `\nWARNING: this replaces the filing registry at ${previous.contractAddress ?? '(unknown)'}.\n` +
+      'Its nullifier tree does not carry over. Every filing already made against it stays on\n' +
+      'chain but can no longer back a credential, and each reporter has to file again.',
+  );
+}
 
 // The wallet has to be up before the admitted root can be read: the root comes
 // from the indexer, through the provider set.
@@ -138,11 +152,11 @@ writeFileSync(
       network: config.networkId,
       contractAddress,
       caseAdmissionAddress: caseDeployment.contractAddress,
-      // Recorded so `file-report` can tell "this case is not admitted" apart
-      // from "this case was admitted after the root was frozen" - the same
-      // circuit error covers both, and only one of them is a mistake.
-      admittedRootAtDeploy: admittedRoot.field.toString(),
-      admittedCasesAtDeploy: caseDeployment.admittedCases,
+      // `reviewThreshold` is the only field here that is not readable on chain,
+      // which is the whole reason this record exists. The frozen root and the
+      // admitted case list are deliberately NOT copied: both are readable from
+      // the two contracts themselves, and `file-report` reads them from there.
+      // A local copy of chain state is a second source that can only drift.
       reviewThreshold: threshold.toString(),
     },
     null,
