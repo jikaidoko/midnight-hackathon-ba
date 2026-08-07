@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+# Salida del compilador Compact (regenerable con `npm run compile`).
+contracts/src/managed/
+
+# Hook de gentle-ai: se crea solo y no se auto-ignora.
+.atl/

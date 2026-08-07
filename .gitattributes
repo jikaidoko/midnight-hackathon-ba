@@ -1,0 +1,18 @@
+# Normalizacion de fin de linea. Este archivo DEBE existir antes del primer `git
+# add`: si se agrega despues, los archivos ya indexados quedan con CRLF y copiarlos
+# de nuevo no alcanza — hace falta `git add --renormalize .`, porque el archivo de
+# trabajo no cambia y git no re-indexa.
+* text=auto eol=lf
+
+*.compact text eol=lf
+*.ts      text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+
+# Artefactos del compilador Compact (hoy ignorados; la regla queda por si algun
+# dia se versiona una clave o un zkir).
+*.prover   binary
+*.verifier binary
+*.zkir     binary
+*.bzkir    binary
