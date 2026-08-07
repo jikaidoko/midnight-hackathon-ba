@@ -49,8 +49,16 @@ export function subjectsFile(config: MidnightConfig): string {
 
 function read(config: MidnightConfig): SubjectFile {
   const path = subjectsFile(config);
-  if (!existsSync(path)) return {};
-  const data = JSON.parse(readFileSync(path, 'utf8')) as SubjectFile;
+  // Null-prototype, because reporter labels are keys here and a label comes off
+  // the command line. On a normal object `--subject __proto__` writes the
+  // prototype instead of a property: the record reads back as absent, a fresh
+  // secret is minted on every run, and the reporter's filings become
+  // unprovable - with no error anywhere to say why.
+  if (!existsSync(path)) return Object.create(null) as SubjectFile;
+  const data = Object.assign(
+    Object.create(null),
+    JSON.parse(readFileSync(path, 'utf8')),
+  ) as SubjectFile;
 
   // Written before filings were scoped to a registry. A flat list cannot say
   // which deployment those filings are in, and guessing would produce exactly
@@ -174,13 +182,22 @@ export function subjectLabel(argv: string[] = process.argv.slice(2)): string {
   return process.env.MN_SUBJECT ?? 'default';
 }
 
-/** Positional arguments, with `--subject <label>` removed. */
+/**
+ * Every flag that takes a value. A flag missing from here has its VALUE parsed
+ * as a positional, which is silent and wrong: `deploy-filing` reads
+ * `positionals()[0]` as the review threshold, so the first unlisted flag turns
+ * it into `BigInt('<some string>')`. Add the flag here when you add it anywhere.
+ */
+const VALUED_FLAGS = new Set(['--subject', '--context']);
+
+/** Positional arguments, with flags and their values removed. */
 export function positionals(argv: string[] = process.argv.slice(2)): string[] {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--subject') { i++; continue; }
-    if (argv[i]?.startsWith('--')) continue;
-    out.push(argv[i] as string);
+    const arg = argv[i] as string;
+    if (VALUED_FLAGS.has(arg)) { i++; continue; }
+    if (arg.startsWith('--')) continue;
+    out.push(arg);
   }
   return out;
 }
