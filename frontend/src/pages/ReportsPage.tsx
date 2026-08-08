@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { AppShell } from '../components/Layout'
-import { Card, PrimaryButton, StatusChip } from '../components/UI'
+import { Card, StatusChip } from '../components/UI'
 import { useReporterView } from '../services/useReporterView'
 import { titleOf } from '../services'
 
@@ -13,26 +13,30 @@ export default function ReportsPage() {
 
   return <AppShell verified bottomNav>
     <section className="page-head">
-      <h1>Tus denuncias</h1>
-      <p>
-        Denuncias registradas <span className="count-pill">{view.myFilingCount}</span>
-      </p>
+      <h1>Tus aportes</h1>
+      <p>Cada denuncia cuenta desde la primera.</p>
     </section>
 
-    {/* The differentiator, and it is gated on the chain's own count — not on a
-        tally this client keeps, which is a tally this client could be wrong
-        about. Below three, no passing proof exists at all. */}
-    <Card tone={view.canPresentCredential ? 'lavender' : 'white'}>
-      <div className="card-title"><ShieldCheck/> Credencial de reincidencia</div>
-      <p>
-        {view.canPresentCredential
-          ? 'Podés probar que denunciaste tres veces sin decir cuáles ni quién sos.'
-          : `Con ${3 - view.myFilingCount} denuncia(s) más vas a poder probar reincidencia sin revelar cuáles.`}
-      </p>
-      <PrimaryButton
-        disabled={!view.canPresentCredential}
-        onClick={()=>navigate('/credential')}
-      >Presentar credencial</PrimaryButton>
+    {/*
+      A plain counter, and no countdown to anything.
+
+      This card used to read "faltan N denuncias para poder probar reincidencia",
+      which put a number between the person and the act of reporting. The
+      contract does no such thing: `registerFiling` asks only that the case is
+      admitted and that this reporter has not already filed on it. Nothing about
+      three. The three lives in `proveRepeatFilings`, a separate and entirely
+      optional circuit for PRESENTING a credential — so a screen that framed it
+      as a bar to clear was describing a rule that does not exist, and
+      discouraging exactly the first-time reporter the channel is for.
+    */}
+    <Card tone="lavender">
+      <div className="card-title"><Sparkles size={18}/> Aportes registrados</div>
+      <div className="row space" style={{ marginTop: 10 }}>
+        <strong style={{ fontFamily: 'Manrope, sans-serif', fontSize: 40, color: 'var(--deep-midnight)' }}>
+          {view.myFilingCount}
+        </strong>
+        <button className="card-link" onClick={()=>navigate('/credential')}>Ver reconocimiento →</button>
+      </div>
     </Card>
 
     <div className="section-label">Casos admitidos</div>
