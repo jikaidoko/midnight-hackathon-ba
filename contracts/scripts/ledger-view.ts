@@ -33,7 +33,6 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repeat, retry, tap, timeout } from 'rxjs';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { loadConfig, PKG_ROOT } from '../src/midnight/config.js';
@@ -131,76 +130,35 @@ const snapshot: Snapshot = {
   reconnects: 0,
 };
 
-// ── Why this pipeline is shaped like this ────────────────────────────────────
+// The stream's endings are handled by `keepAlive` in derived-state.ts, which is
+// where the explanation lives too - the fault belongs to the shared stream, not
+// to this script, and the reporter's view needs exactly the same treatment.
 //
-// MEASURED, not reasoned about, and the measurement overturned the obvious
-// diagnosis twice.
-//
-// The symptom: stop the indexer container, and the view freezes for good. No
-// error, no log line, and no recovery when the indexer comes back - proved by
-// filing a report that really landed on chain afterwards and watching the view
-// never see it. The page went on serving its last snapshot with total authority.
-//
-// First wrong diagnosis: "the error handler ends the stream". An rxjs
-// subscription is terminal on error, so that reasoning is sound - it is just not
-// what happens here. Adding `retry` changed nothing.
-//
-// Second wrong diagnosis: "a dead socket is indistinguishable from a quiet one,
-// so silence needs a deadline". Also sound - this stream emits only when state
-// CHANGES, not per block - and `timeout({ each })` does convert silence into a
-// TimeoutError, verified in isolation. It still changed nothing.
-//
-// What actually happens, from instrumenting next/error/complete directly:
-//
-//     +0.2s NEXT
-//     +10.0s COMPLETE
-//
-// The observable COMPLETES. It does not hang and it does not error, so there is
-// nothing for `timeout` to fire on and nothing for `retry` to catch: both only
-// ever see a stream that finished normally, and a finished stream is not a
-// failure by any definition either operator uses. `repeat` is the operator that
-// resubscribes after a completion, and it is the one that was missing.
-//
-// All three stay, because they cover three different endings:
-//
-//   repeat    completion  - the one actually observed here
-//   retry     error       - a bad address, a rejected query
-//   timeout   silence     - a socket that is open and mute, which neither of the
-//                           above would ever notice
-//
-// Every resubscribe re-emits current state, so this is also a poll of last
-// resort: the view cannot be staler than a reconnect cycle. Counting emissions
-// would then inflate `updates` with heartbeats and break the claim this view
-// makes about itself, which is why the handler below compares before counting -
-// an emission that decodes to the same view is LIVENESS, not a chain event.
-const subscription = publicView$({ publicDataProvider } as never, {
-  contractAddress: deployment.contractAddress,
-  reviewThreshold,
-})
-  .pipe(
-    timeout({ each: HEARTBEAT_MS }),
-    tap({
-      error: (err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        // A timeout is an expected ending on a quiet chain, so it is not an
-        // error the PAGE should shout about - only a real failure is.
-        const silent = err instanceof Error && err.name === 'TimeoutError';
-        snapshot.error = silent ? null : message;
-        snapshot.reconnects += 1;
-        console.log(
-          silent
-            ? `Nothing heard for ${HEARTBEAT_MS / 1000}s; rebuilding the subscription.`
-            : `Subscription failed, reconnecting in ${RECONNECT_MS / 1000}s: ${message}`,
-        );
-      },
-      complete: () => {
-        // The normal path. Not an error, and not worth a line per cycle.
-        snapshot.reconnects += 1;
-      },
-    }),
-    retry({ delay: RECONNECT_MS }),
-    repeat({ delay: RECONNECT_MS }),
-  )
+// The one thing that stays here is the bookkeeping, because only a caller knows
+// what its numbers mean. Every resubscribe re-emits current state, so counting
+// emissions would inflate `updates` with heartbeats and break the claim this
+// view makes about itself. Comparing first splits one number into two: `updates`
+// is chain events, `checkedAt` is liveness.
+const subscription = publicView$(
+  { publicDataProvider } as never,
+  { contractAddress: deployment.contractAddress, reviewThreshold },
+  {
+    heartbeatMs: HEARTBEAT_MS,
+    reconnectMs: RECONNECT_MS,
+    onReconnect: (ending) => {
+      snapshot.reconnects += 1;
+      // A completion is the normal path and a timeout is expected on a quiet
+      // chain; neither is something the PAGE should shout about. Only a real
+      // failure sets the banner.
+      snapshot.error = ending.kind === 'error' ? ending.message : null;
+      if (ending.kind === 'error') {
+        console.log(`Subscription failed, reconnecting in ${RECONNECT_MS / 1000}s: ${ending.message}`);
+      } else if (ending.kind === 'timeout') {
+        console.log(`Nothing heard for ${HEARTBEAT_MS / 1000}s; rebuilding the subscription.`);
+      }
+    },
+  },
+)
   .subscribe({
     next: (view) => {
       const now = new Date().toISOString();
