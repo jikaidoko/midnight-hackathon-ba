@@ -11,7 +11,8 @@ times** - without saying how many, which ones, or who.
 
 | Path | What it is |
 |---|---|
-| `frontend/` | React + Vite + TS demo UI (Stitch export), mock services behind a Midnight-ready boundary |
+| `frontend/` | React + Vite + TS reporter interface. Chain-backed: it reads the live contract and builds real proofs. `VITE_MN_MODE=mock` swaps in fixtures |
+| `frontend-verifier/` | React + Vite + TS portal for the verifying authority (requests inbox, new verification, ZK result, authorized info). **Mock only** - it has no Midnight dependency and never reaches a chain |
 | `contracts/` | Compact circuits and their TypeScript layer |
 | `contracts/src/amparo.compact` | The contract: case admission, filings, threshold credential, public case alarm |
 | `contracts/src/amparo-witnesses.ts` | Private inputs the circuits read |

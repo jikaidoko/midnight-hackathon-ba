@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Solicitudes - AMPARO</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;family=Manrope:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-container-lowest": "#ffffff",
+                      "on-secondary-fixed-variant": "#444076",
+                      "on-primary": "#ffffff",
+                      "on-secondary": "#ffffff",
+                      "inverse-primary": "#c5c0ff",
+                      "secondary": "#5c5890",
+                      "on-tertiary-fixed": "#201b0f",
+                      "tertiary-fixed": "#ede1cd",
+                      "secondary-container": "#c5c0ff",
+                      "surface-bright": "#fcf8fe",
+                      "background": "#fcf8fe",
+                      "on-secondary-container": "#504c83",
+                      "surface-tint": "#5b5795",
+                      "outline": "#787681",
+                      "on-tertiary-container": "#99907e",
+                      "secondary-fixed-dim": "#c5c0ff",
+                      "on-background": "#1c1b1f",
+                      "on-primary-fixed-variant": "#443f7b",
+                      "on-primary-fixed": "#17114d",
+                      "primary-fixed": "#e3dfff",
+                      "inverse-surface": "#313034",
+                      "surface-container": "#f1ecf2",
+                      "surface-dim": "#dcd9df",
+                      "inverse-on-surface": "#f3eff5",
+                      "surface-container-highest": "#e5e1e7",
+                      "tertiary-container": "#2f291c",
+                      "surface-container-low": "#f6f2f8",
+                      "outline-variant": "#c8c5d1",
+                      "tertiary": "#1a1509",
+                      "surface": "#fcf8fe",
+                      "surface-variant": "#e5e1e7",
+                      "on-surface-variant": "#47464f",
+                      "primary": "#110847",
+                      "on-error-container": "#93000a",
+                      "on-tertiary-fixed-variant": "#4d4638",
+                      "tertiary-fixed-dim": "#d0c5b2",
+                      "surface-container-high": "#ebe7ed",
+                      "on-tertiary": "#ffffff",
+                      "error": "#ba1a1a",
+                      "on-surface": "#1c1b1f",
+                      "on-error": "#ffffff",
+                      "on-primary-container": "#8e8acb",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed": "#181348",
+                      "primary-container": "#26215c",
+                      "primary-fixed-dim": "#c5c0ff",
+                      "secondary-fixed": "#e3dfff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "lg": "24px",
+                      "xxl": "80px",
+                      "xs": "4px",
+                      "sm": "8px",
+                      "xl": "48px",
+                      "md": "16px"
+              },
+              "fontFamily": {
+                      "headline-lg": [
+                              "Manrope"
+                      ],
+                      "display-lg": [
+                              "Manrope"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Manrope"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "1.6",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "1",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+      </script>
+<style>
+        body {
+            background-color: #F8F6FC;
+            min-height: 100vh;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 30px rgba(38, 33, 92, 0.03);
+        }
+    </style>
+</head>
+<body class="text-on-background font-body-md antialiased">
+<!-- TopNavBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-md md:px-lg max-w-[1440px] mx-auto bg-white/70 backdrop-blur-[18px] dark:bg-surface/70 border-b border-white/40 dark:border-outline-variant/40 shadow-[0_20_40px_rgba(38,33,92,0.04)] h-[80px]">
+<div class="flex items-center gap-lg">
+<span class="font-headline-md text-headline-md font-semibold text-primary dark:text-primary-fixed">AMPARO / Verificación</span>
+<nav class="hidden md:flex items-center gap-md ml-xl h-full pt-2">
+<a class="bg-primary-fixed text-primary px-4 py-1.5 rounded-full font-semibold transition-all duration-200" href="#">Solicitudes</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors px-4 py-1.5" href="#">Verificar</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors px-4 py-1.5" href="#">Ayuda</a>
+</nav>
+</div>
+<div class="flex items-center gap-md">
+<span class="text-on-surface-variant hidden md:block font-body-md text-body-md">Organismo verificador</span>
+<div class="w-10 h-10 rounded-full bg-surface-variant overflow-hidden border border-outline-variant/30 flex items-center justify-center">
+<img alt="Avatar del verificador" class="w-full h-full object-cover" data-alt="A small, professional avatar image of a female verification officer in a modern office setting. She is wearing a neat blazer and has a subtle smile. The lighting is soft and natural, contributing to an atmospheric, clean, and trustworthy aesthetic. High-key lighting, bright minimal background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0ALn6cS4eR9X3ZpWQShDcb3FRbo7uwags9dEiHnQBgmVP7VfXR2RGL5DMpstrFDX-PIb4FhJ30BwOW_1NVShj2tg239tWxMppD1gtxGQUuEOHbLGs3ES5LuFralA_Vj6s0pi_0j3rPiMgbjL62SM1vbaT1d0PZxyFh14w91H_IYqBa_MQfhTi24jQF_-KyLY5im-PSYkW5k8qr8IGVdv2TfkrrnZ8GW1YkZF3AdKIhC0eIDYVkvM"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-[140px] pb-xl px-md md:px-lg max-w-[1240px] mx-auto min-h-screen flex flex-col">
+<!-- Intro Header & Actions -->
+<section class="mb-xl flex flex-col md:flex-row md:items-start justify-between gap-lg">
+<div>
+<h1 class="font-display-lg text-display-lg text-[#26215C] mb-2">Solicitudes</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
+                    Verificá condiciones o consultá información que fue compartida con tu organización.
+                </p>
+</div>
+<button class="w-full sm:w-auto px-6 py-3 bg-[#26215C] text-white font-body-md text-body-md rounded-full hover:opacity-90 transition-opacity flex items-center justify-center gap-sm shadow-md flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                Nueva verificación
+            </button>
+</section>
+<!-- List of Requests -->
+<section class="flex flex-col gap-md">
+<!-- Request 1 -->
+<div class="glass-card rounded-[32px] p-lg flex flex-col md:flex-row md:items-center justify-between gap-md group hover:shadow-lg transition-all duration-300">
+<div class="flex items-start md:items-center gap-md flex-1">
+<div class="w-14 h-14 rounded-full bg-primary-fixed/30 flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div>
+<div class="flex items-center gap-sm mb-2">
+<span class="px-3 py-1 bg-primary-fixed text-primary font-label-sm text-label-sm rounded-full tracking-wider uppercase">VERIFICACIÓN PRIVADA</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Historial de reportes</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Comprobar si existen al menos 3 reportes sellados previamente.</p>
+</div>
+</div>
+<div class="flex items-center justify-between md:justify-end gap-lg w-full md:w-auto mt-4 md:mt-0 pt-4 md:pt-0 border-t border-outline-variant/20 md:border-t-0">
+<div class="flex items-center gap-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Pendiente</span>
+</div>
+<button class="px-6 py-2.5 rounded-full border-2 border-primary text-primary font-semibold hover:bg-primary-fixed transition-colors">
+                Verificar
+            </button>
+</div>
+</div>
+<!-- Request 2 -->
+<div class="glass-card rounded-[32px] p-lg flex flex-col md:flex-row md:items-center justify-between gap-md group hover:shadow-lg transition-all duration-300">
+<div class="flex items-start md:items-center gap-md flex-1">
+<div class="w-14 h-14 rounded-full bg-tertiary-fixed/30 flex items-center justify-center text-on-tertiary-fixed flex-shrink-0">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">lock_open</span>
+</div>
+<div>
+<div class="flex items-center gap-sm mb-2">
+<span class="px-3 py-1 bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm rounded-full tracking-wider uppercase">ACCESO AUTORIZADO</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Reporte compartido</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">La persona autorizó acceso parcial a un reporte.</p>
+</div>
+</div>
+<div class="flex items-center justify-between md:justify-end gap-lg w-full md:w-auto mt-4 md:mt-0 pt-4 md:pt-0 border-t border-outline-variant/20 md:border-t-0">
+<div class="flex items-center gap-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span>
+<span class="font-body-md text-body-md text-on-surface font-medium">Disponible</span>
+</div>
+<button class="px-6 py-2.5 rounded-full border-2 border-primary text-primary font-semibold hover:bg-primary-fixed transition-colors">
+                Ver información
+            </button>
+</div>
+</div>
+</section>
+</main>
+</body></html>
