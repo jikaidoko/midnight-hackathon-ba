@@ -18,6 +18,7 @@
     "check-wallet": "tsx scripts/check-wallet.ts",
     "deploy": "tsx scripts/deploy.ts",
     "admit-case": "tsx scripts/admit-case.ts",
+    "respond-case": "tsx scripts/respond-case.ts",
     "file-report": "tsx scripts/file-report.ts",
     "prove-credential": "tsx scripts/prove-credential.ts",
     "ledger-view": "tsx scripts/ledger-view.ts"

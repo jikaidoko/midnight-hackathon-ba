@@ -41,18 +41,22 @@ export const AUTHORITY_PRIVATE_STATE_ID = 'amparo-authority';
 /** Reporter namespaces are `${this}:${label}` - see `forSubject`. */
 export const SUBJECT_PRIVATE_STATE_PREFIX = 'amparo-subject';
 
-export type AmparoCircuitId = 'admitCase' | 'registerFiling' | 'proveRepeatFilings';
+export type AmparoCircuitId =
+  | 'admitCase'
+  | 'registerFiling'
+  | 'proveRepeatFilings'
+  | 'respondToCase';
 /** Kept as a distinct name because the provider set is typed on it. */
 export type AnyCircuitId = AmparoCircuitId;
 
 /**
- * The contract, as the authority sees it. `admitCase` is the only circuit an
- * authority can call, but the keys are per contract and not per role, so all
- * three are listed.
+ * The contract, as the authority sees it. `admitCase` and `respondToCase` are
+ * the only circuits an authority can call, but the keys are per contract and
+ * not per role, so all four are listed.
  */
 export const AMPARO: ContractSpec<AmparoCircuitId> = {
   name: 'amparo',
-  circuitIds: ['admitCase', 'registerFiling', 'proveRepeatFilings'],
+  circuitIds: ['admitCase', 'registerFiling', 'proveRepeatFilings', 'respondToCase'],
   privateStateId: AUTHORITY_PRIVATE_STATE_ID,
 };
 

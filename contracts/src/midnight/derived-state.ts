@@ -43,7 +43,9 @@ import {
   type MonoTypeOperatorFunction,
   type Observable,
 } from 'rxjs';
-import { ledger, filingNullifier, type AmparoLedger } from './ledger.js';
+import {
+  ledger, filingNullifier, decodeGrounds, ResponseKind, type AmparoLedger,
+} from './ledger.js';
 
 /** One admitted case, as this particular reporter sees it. */
 export interface CaseView {
@@ -327,6 +329,19 @@ export interface PublicCaseView {
   readonly underReview: boolean;
   /** Further reports needed to cross. Zero once under review. */
   readonly reportsToReview: bigint;
+  /**
+   * The control body has recorded an answer to this case.
+   *
+   * False on a case that never escalated too, where it means nothing: nobody
+   * has asked the body to act yet. Only `underReview && !answered` is silence.
+   */
+  readonly answered: boolean;
+  /** Present only once answered. */
+  readonly kind?: ResponseKind;
+  /** The mandatory grounds, decoded out of their fixed-width padding. */
+  readonly grounds?: string;
+  /** The unbounded half. Empty string when the body wrote only grounds. */
+  readonly detail?: string;
 }
 
 export interface PublicLedgerView {
@@ -336,6 +351,17 @@ export interface PublicLedgerView {
   readonly admittedCount: bigint;
   /** How many of them are flagged. */
   readonly underReviewCount: number;
+  /**
+   * THE observable: escalated, and no answer on chain.
+   *
+   * Each one is a case the control body was publicly told about and has not
+   * addressed. It is derived from an ABSENCE - the kind of fact no chain emits
+   * and no event log contains - so it exists only once something computes it.
+   * That is why it is a field of the view and not left to each caller: a
+   * guarantee every screen has to remember to derive is one some screen will
+   * forget, and the forgetting looks like there being nothing to show.
+   */
+  readonly unanswered: readonly PublicCaseView[];
   /** Every report on the contract, summed across cases. */
   readonly totalReports: bigint;
   readonly reviewThreshold: bigint;
@@ -371,6 +397,10 @@ export function derivePublicView(
     totalReports += reports;
     if (underReview) underReviewCount++;
 
+    const response = state.caseResponses.member(caseCommitment)
+      ? state.caseResponses.lookup(caseCommitment)
+      : undefined;
+
     cases.push({
       caseCommitment: toHex(caseCommitment),
       reports,
@@ -379,6 +409,18 @@ export function derivePublicView(
       // subtraction for a harder reason - it would underflow on Uint - and the
       // clamp keeps this readable as "none left to go" past the bar.
       reportsToReview: reports >= threshold ? 0n : threshold - reports,
+      answered: response !== undefined,
+      // Spread rather than assigned, so an unanswered case has no `grounds` key
+      // at all. `grounds: undefined` and `grounds: ''` both render as blank, and
+      // one of those means "said nothing" while the other means "was never
+      // asked" - the distinction this view exists to keep.
+      ...(response
+        ? {
+            kind: response.kind,
+            grounds: decodeGrounds(response.grounds),
+            detail: response.detail,
+          }
+        : {}),
     });
   }
 
@@ -386,6 +428,9 @@ export function derivePublicView(
     cases,
     admittedCount: state.admittedCount,
     underReviewCount,
+    // Escalated and unanswered. Filtered from `cases` rather than collected in
+    // the loop so it cannot drift from what the list above shows.
+    unanswered: cases.filter((c) => c.underReview && !c.answered),
     totalReports,
     reviewThreshold: threshold,
   };

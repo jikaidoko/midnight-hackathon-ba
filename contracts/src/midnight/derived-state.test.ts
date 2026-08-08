@@ -330,10 +330,19 @@ test('10. ADVERSARIAL: no reporter-derived value reaches the public view', () =>
   // past a substring search.
   assert.deepEqual(
     Object.keys(e.publicView()).sort(),
-    ['admittedCount', 'cases', 'reviewThreshold', 'totalReports', 'underReviewCount'],
+    [
+      'admittedCount', 'cases', 'reviewThreshold', 'totalReports', 'unanswered',
+      'underReviewCount',
+    ],
   );
+
+  // `answered` arrives alone, and that is the design rather than an omission:
+  // `kind`, `grounds` and `detail` are absent entirely on a case with no
+  // answer, not present and undefined. This harness has no authority secret so
+  // it cannot produce the answered shape; those three keys are accounted for
+  // where a response can actually be recorded.
   assert.deepEqual(
     Object.keys(publicCaseOf(e.publicView(), CASE_A)).sort(),
-    ['caseCommitment', 'reports', 'reportsToReview', 'underReview'],
+    ['answered', 'caseCommitment', 'reports', 'reportsToReview', 'underReview'],
   );
 });
