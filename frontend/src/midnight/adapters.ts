@@ -50,23 +50,33 @@ async function contextBytes(name: string): Promise<Uint8Array> {
 /**
  * Bridges an rxjs stream to the async iterable the screens consume.
  *
- * The error branch is the part worth keeping in one place: without it a failed
- * subscription leaves the loop parked on a promise nobody will ever resolve, so
- * a dead indexer renders as a spinner that never resolves instead of an error
- * anybody can read.
+ * All THREE endings are handled, and that is the whole point of the function.
+ * The loop parks on a promise only an observer callback resolves, so any ending
+ * this does not wake leaves it parked forever - which a screen renders as a
+ * spinner that never resolves, indistinguishable from a slow network.
+ *
+ * `complete` is the ending easiest to leave out and the one the indexer actually
+ * produces: its state stream ends by COMPLETING, not by erroring, about ten
+ * seconds after a connection drops. `keepAlive` resubscribes past that, so it
+ * should not reach here - but "should not" is how a missing branch stays
+ * invisible, and a completion that does arrive now ends the iteration instead of
+ * hanging it.
  */
 async function* drain<T>(stream: Observable<T>): AsyncIterable<T> {
   const queue: T[] = []
   let wake: (() => void) | null = null
   let failure: unknown = null
+  let ended = false
   const subscription = stream.subscribe({
     next: (v) => { queue.push(v); wake?.() },
     error: (e) => { failure = e; wake?.() },
+    complete: () => { ended = true; wake?.() },
   })
   try {
     for (;;) {
       while (queue.length) yield queue.shift() as T
       if (failure) throw failure
+      if (ended) return
       await new Promise<void>((resolve) => { wake = resolve })
       wake = null
     }

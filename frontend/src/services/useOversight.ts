@@ -1,9 +1,13 @@
 // useOversight.ts — the control portal's subscriptions.
 //
-// Two of them, kept separate because they come from different places and one of
-// them may not exist. The backlog is public chain state. Responses are written
-// by a circuit this build does not carry, so in chain mode that half is empty
-// and says so. Joining them into one hook would hide which half went missing.
+// The backlog and each case's answer both come out of `derivePublicView`, which
+// takes no secret: this is the view any observer can build, which is the property
+// that makes "nobody told us" unavailable as a defence.
+//
+// An earlier version of this note said responses came from "a circuit this build
+// does not carry". `respondToCase` is in the contract now, so that half is real.
+// What an unanswered case renders is the ABSENCE of an entry - the observable the
+// circuit exists to produce, not a gap in the wiring.
 
 import { useEffect, useState } from 'react'
 import type { PublicLedgerView } from './contracts'
