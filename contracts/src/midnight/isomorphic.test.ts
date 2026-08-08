@@ -34,7 +34,13 @@ const SUBJECTS = [
     // sentinel green and the guard goes on reporting clean about a file that no
     // longer holds what it is guarding.
     file: 'derived-state.ts',
-    mustExport: [/export function deriveReporterView/, /export function derivePublicView/],
+    mustExport: [
+      /export function deriveReporterView/,
+      /export function derivePublicView/,
+      // Ships to the browser with both views, and is the only reason either one
+      // survives an indexer that drops its stream.
+      /export function keepAlive/,
+    ],
   },
   // Ledger decoding and the pure circuits that derive on-chain lookup keys.
   { file: 'ledger.ts', mustExport: [/export function filingNullifier/] },
