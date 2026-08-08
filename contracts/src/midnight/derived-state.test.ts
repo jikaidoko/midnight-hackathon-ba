@@ -17,6 +17,14 @@
 //   5. ADVERSARIAL — a reporter with a different secret sees none of it as
 //      theirs, which is the privacy property showing up in the view.
 //   6. A case admitted late appears and is immediately fileable.
+//
+// Then the PUBLIC view, which is the same chain state with no secret at all:
+//   7. It reports corroboration and the flag, and agrees with the reporter view
+//      on every public number.
+//   8. `reportsToReview` counts down and clamps at zero past the bar.
+//   9. Aggregates sum across cases, not within one.
+//  10. ADVERSARIAL — nothing a reporter's secret produced appears in it, with
+//      three filings by one person on chain to produce something.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +43,11 @@ import {
   createAuthorityState,
   createSubjectState,
 } from '../amparo-witnesses.js';
-import { deriveReporterView, CREDENTIAL_FILINGS } from './derived-state.js';
+import {
+  deriveReporterView,
+  derivePublicView,
+  CREDENTIAL_FILINGS,
+} from './derived-state.js';
 
 const COIN_PK = '00'.repeat(32);
 const b32 = (seed: number): Uint8Array => new Uint8Array(32).fill(seed);
@@ -77,7 +89,10 @@ function setup(admitted: Uint8Array[] = [CASE_A, CASE_B, CASE_C]) {
   const view = (secret: Uint8Array) =>
     deriveReporterView(ledger(state), secret, THRESHOLD);
 
-  return { admit, file, view };
+  // No secret parameter, because the function has none to take.
+  const publicView = () => derivePublicView(ledger(state), THRESHOLD);
+
+  return { admit, file, view, publicView };
 }
 
 const caseOf = (v: ReturnType<ReturnType<typeof setup>['view']>, kase: Uint8Array) => {
@@ -199,4 +214,126 @@ test('6. a case admitted late shows up and is immediately fileable', () => {
 
   // And the earlier filing is untouched.
   assert.equal(caseOf(after, CASE_A).hasFiled, true);
+});
+
+// ---------------------------------------------------------------------------
+// The public view
+// ---------------------------------------------------------------------------
+
+const publicCaseOf = (
+  v: ReturnType<ReturnType<typeof setup>['publicView']>,
+  kase: Uint8Array,
+) => {
+  const hex = Buffer.from(kase).toString('hex');
+  const found = v.cases.find((c) => c.caseCommitment === hex);
+  assert.ok(found, `case ${hex.slice(0, 8)} missing from the public view`);
+  return found;
+};
+
+test('7. the public view reports corroboration, and agrees with the reporter view', () => {
+  const e = setup();
+  e.file(SOFIA, CASE_A);
+  e.file(NEIGHBOUR_1, CASE_A);
+
+  const pub = e.publicView();
+  assert.equal(pub.cases.length, 3);
+  assert.equal(pub.admittedCount, 3n);
+  assert.equal(publicCaseOf(pub, CASE_A).reports, 2n);
+  assert.equal(publicCaseOf(pub, CASE_A).underReview, false);
+
+  // Same chain, same public numbers, whoever is asking. The reporter view adds
+  // private answers on top; it does not disagree about the public ones.
+  const sofia = e.view(SOFIA);
+  const stranger = e.view(STRANGER);
+  for (const v of [sofia, stranger]) {
+    assert.equal(caseOf(v, CASE_A).reports, publicCaseOf(pub, CASE_A).reports);
+    assert.equal(caseOf(v, CASE_A).underReview, publicCaseOf(pub, CASE_A).underReview);
+    assert.equal(v.admittedCount, pub.admittedCount);
+  }
+});
+
+test('8. reportsToReview counts down, and clamps at zero past the bar', () => {
+  const e = setup();
+
+  assert.equal(publicCaseOf(e.publicView(), CASE_A).reportsToReview, 3n);
+
+  e.file(SOFIA, CASE_A);
+  assert.equal(publicCaseOf(e.publicView(), CASE_A).reportsToReview, 2n);
+
+  e.file(NEIGHBOUR_1, CASE_A);
+  const two = publicCaseOf(e.publicView(), CASE_A);
+  assert.equal(two.reportsToReview, 1n, 'one short, and the flag is still down');
+  assert.equal(two.underReview, false);
+
+  e.file(NEIGHBOUR_2, CASE_A);
+  const flipped = publicCaseOf(e.publicView(), CASE_A);
+  assert.equal(flipped.underReview, true, 'the third report flips it');
+  assert.equal(flipped.reportsToReview, 0n);
+
+  // Past the bar it stays zero rather than going negative, which is what the
+  // clamp is for: a fourth report must not read as "-1 to review".
+  e.file(STRANGER, CASE_A);
+  const past = publicCaseOf(e.publicView(), CASE_A);
+  assert.equal(past.reports, 4n);
+  assert.equal(past.reportsToReview, 0n);
+  assert.equal(past.underReview, true, 'and the flag is idempotent');
+});
+
+test('9. aggregates sum across cases, not within one', () => {
+  const e = setup();
+  e.file(SOFIA, CASE_A);
+  e.file(NEIGHBOUR_1, CASE_A);
+  e.file(NEIGHBOUR_2, CASE_A); // CASE_A flips
+  e.file(SOFIA, CASE_B);
+
+  const pub = e.publicView();
+  assert.equal(pub.totalReports, 4n, 'three on A plus one on B');
+  assert.equal(pub.underReviewCount, 1, 'only A crossed');
+  assert.equal(pub.reviewThreshold, THRESHOLD);
+
+  // An admitted case nobody reported still appears, at zero.
+  assert.equal(publicCaseOf(pub, CASE_C).reports, 0n);
+  assert.equal(pub.cases.length, 3);
+});
+
+test('10. ADVERSARIAL: no reporter-derived value reaches the public view', () => {
+  // Three filings by ONE reporter, so there is something to leak: three
+  // nullifiers on chain that all derive from Sofía's secret. Anyone may read
+  // them - they are public ledger state - and linking them to each other is
+  // exactly what would undo the credential's privacy.
+  const e = setup();
+  e.file(SOFIA, CASE_A);
+  e.file(SOFIA, CASE_B);
+  e.file(SOFIA, CASE_C);
+  assert.equal(e.view(SOFIA).myFilingCount, 3, 'the filings really are on chain');
+
+  const serialized = JSON.stringify(e.publicView(), (_k, v) =>
+    typeof v === 'bigint' ? v.toString() : v,
+  );
+
+  for (const kase of [CASE_A, CASE_B, CASE_C]) {
+    const nullifier = Buffer.from(pureCircuits.filingNullifierOf(SOFIA, kase)).toString('hex');
+    assert.ok(
+      !serialized.includes(nullifier),
+      'a filing nullifier reached the public view',
+    );
+  }
+  assert.ok(!serialized.includes(Buffer.from(SOFIA).toString('hex')), 'the secret itself leaked');
+
+  // The case commitments DO appear, and that is not a leak: `registerFiling`
+  // discloses the case because it is the key of the public counter. What must
+  // not appear is anything joining a case to a person.
+  assert.ok(serialized.includes(Buffer.from(CASE_A).toString('hex')));
+
+  // The shape check the two above cannot make: every field is accounted for, so
+  // a field added later that carries a nullifier fails here rather than sliding
+  // past a substring search.
+  assert.deepEqual(
+    Object.keys(e.publicView()).sort(),
+    ['admittedCount', 'cases', 'reviewThreshold', 'totalReports', 'underReviewCount'],
+  );
+  assert.deepEqual(
+    Object.keys(publicCaseOf(e.publicView(), CASE_A)).sort(),
+    ['caseCommitment', 'reports', 'reportsToReview', 'underReview'],
+  );
 });

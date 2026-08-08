@@ -28,10 +28,16 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const SUBJECTS = [
-  // The reporter's view, and the join a UI renders from.
-  { file: 'derived-state.ts', mustExport: /export function deriveReporterView/ },
+  {
+    // Both views a UI renders from. Naming them separately matters: they are
+    // independent exports, so one can be moved out while the other keeps the
+    // sentinel green and the guard goes on reporting clean about a file that no
+    // longer holds what it is guarding.
+    file: 'derived-state.ts',
+    mustExport: [/export function deriveReporterView/, /export function derivePublicView/],
+  },
   // Ledger decoding and the pure circuits that derive on-chain lookup keys.
-  { file: 'ledger.ts', mustExport: /export function filingNullifier/ },
+  { file: 'ledger.ts', mustExport: [/export function filingNullifier/] },
 ] as const;
 
 function sourceOf(file: string): string {
@@ -79,11 +85,13 @@ test('the guard can see its subjects', () => {
   // above is scanning something that is no longer the module it names, and its
   // silence would mean nothing.
   for (const { file, mustExport } of SUBJECTS) {
-    assert.match(
-      sourceOf(file),
-      mustExport,
-      `Guard is not reading ${file}; the checks above prove nothing about it.`,
-    );
+    for (const pattern of mustExport) {
+      assert.match(
+        sourceOf(file),
+        pattern,
+        `Guard is not reading ${file}; the checks above prove nothing about it.`,
+      );
+    }
   }
 
   // A pattern that matches nothing anywhere is a broken pattern, not a clean

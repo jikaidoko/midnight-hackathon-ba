@@ -1,5 +1,14 @@
-// derived-state.ts - the view a reporter's UI needs, computed from the
-// contract's public state plus the reporter's own secret.
+// derived-state.ts - the views a UI renders, computed from the contract's
+// public state.
+//
+// There are two, and the difference between them IS the product:
+//
+//   deriveReporterView   public state joined with ONE reporter's secret
+//   derivePublicView     public state alone, no secret anywhere
+//
+// The reporter view is below. The public view is at the bottom of this file, and
+// it is the one an audience watches: it takes no secret because there is none to
+// take, which is why it can be served to anybody without a wallet.
 //
 // The scripts read state one shot at a time, after a transaction they just sent.
 // A UI cannot work that way: it has to know, before offering a button, whether
@@ -66,6 +75,21 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
+ * How many reports a case has, including none.
+ *
+ * `Map<K, Counter>` does not auto-initialise: a case nobody has reported has no
+ * entry at all, and `lookup` on a missing key fails rather than returning zero.
+ * It is the same asymmetry `registerFiling` handles with an `insert` before its
+ * first `increment`, and it is why both views ask `member` first. Shared so the
+ * two cannot drift into disagreeing about what an unreported case reads as.
+ */
+function reportsFor(state: AmparoLedger, caseCommitment: Uint8Array): bigint {
+  return state.caseReports.member(caseCommitment)
+    ? state.caseReports.lookup(caseCommitment).read()
+    : 0n;
+}
+
+/**
  * Joins the contract's public state with one reporter's secret.
  *
  * `threshold` is passed in because it cannot be read: `reviewThreshold` is a
@@ -95,9 +119,7 @@ export function deriveReporterView(
 
     cases.push({
       caseCommitment: toHex(caseCommitment),
-      reports: state.caseReports.member(caseCommitment)
-        ? state.caseReports.lookup(caseCommitment).read()
-        : 0n,
+      reports: reportsFor(state, caseCommitment),
       underReview: state.casesUnderReview.member(caseCommitment),
       hasFiled,
       canFile: !hasFiled,
@@ -142,6 +164,127 @@ export function reporterView$(
           sources.secret,
           sources.reviewThreshold,
         ),
+      ),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The public view
+// ---------------------------------------------------------------------------
+//
+// What the chain says about CASES, with no reporter in it.
+//
+// This is the deliberately public half of the contract. Output B counts reports
+// per case and flags a case once enough independent ones converge, and the
+// subject of that count is an admitted site or incident, not a person. Privacy
+// points at the reporter; transparency points at the institution.
+//
+// It takes no secret, and that is a structural guarantee rather than a promise
+// to be careful: there is no parameter through which a reporter's identity could
+// enter, so no version of this function can leak one. `deriveReporterView` needs
+// a secret to answer "have I filed?"; nothing here asks a question about a
+// person, so nothing here can answer one.
+//
+// The practical consequence is what makes this view the safe one to run live: it
+// needs an indexer and nothing else. No wallet, so no sync and no seed; no proof
+// server, because reading proves nothing. Every failure mode that has cost this
+// project time belongs to the machinery this view does not use.
+
+/** One admitted case, as anyone at all sees it. */
+export interface PublicCaseView {
+  /** 32-byte case commitment, hex. Opaque: the registry holds no case detail. */
+  readonly caseCommitment: string;
+  /** How many distinct reporters have filed against it. */
+  readonly reports: bigint;
+  /** It crossed the threshold and is flagged for review. */
+  readonly underReview: boolean;
+  /** Further reports needed to cross. Zero once under review. */
+  readonly reportsToReview: bigint;
+}
+
+export interface PublicLedgerView {
+  /** Every admitted case, in registry order. */
+  readonly cases: readonly PublicCaseView[];
+  /** Cases the authority has admitted, from the contract's own counter. */
+  readonly admittedCount: bigint;
+  /** How many of them are flagged. */
+  readonly underReviewCount: number;
+  /** Every report on the contract, summed across cases. */
+  readonly totalReports: bigint;
+  readonly reviewThreshold: bigint;
+}
+
+/**
+ * The public half of the ledger, with no secret involved.
+ *
+ * `threshold` is passed in for the same reason `deriveReporterView` takes it:
+ * `reviewThreshold` is `sealed`, and a sealed field is absent from the generated
+ * Ledger projection entirely. The circuit reads it; no client can. It comes from
+ * the deployment record.
+ *
+ * Note what is NOT read here even though it is public: `spentFilingNullifiers`
+ * and `filingNullifierTree`. They are on chain and anyone may read them, but a
+ * nullifier is the one public value derived from a reporter's secret, so putting
+ * them on a screen would publish the only per-person artifact the design has -
+ * still unlinkable to a name, but no longer unlinkable to each other across a
+ * single reporter's filings. The view stops at the case.
+ */
+export function derivePublicView(
+  state: AmparoLedger,
+  threshold: bigint,
+): PublicLedgerView {
+  const cases: PublicCaseView[] = [];
+  let totalReports = 0n;
+  let underReviewCount = 0;
+
+  for (const caseCommitment of state.admittedIndex) {
+    const reports = reportsFor(state, caseCommitment);
+    const underReview = state.casesUnderReview.member(caseCommitment);
+
+    totalReports += reports;
+    if (underReview) underReviewCount++;
+
+    cases.push({
+      caseCommitment: toHex(caseCommitment),
+      reports,
+      underReview,
+      // Clamped rather than subtracted blind. The circuit avoids the same
+      // subtraction for a harder reason - it would underflow on Uint - and the
+      // clamp keeps this readable as "none left to go" past the bar.
+      reportsToReview: reports >= threshold ? 0n : threshold - reports,
+    });
+  }
+
+  return {
+    cases,
+    admittedCount: state.admittedCount,
+    underReviewCount,
+    totalReports,
+    reviewThreshold: threshold,
+  };
+}
+
+export interface PublicViewSources {
+  readonly contractAddress: string;
+  readonly reviewThreshold: bigint;
+}
+
+/**
+ * Live public view: re-emits whenever the contract's state changes.
+ *
+ * Same subscription the reporter view uses, and deliberately so - the flag
+ * flipping on screen is the same event the chain published, not a poll that
+ * happened to catch it.
+ */
+export function publicView$(
+  providers: StateObservableProvider,
+  sources: PublicViewSources,
+): Observable<PublicLedgerView> {
+  return providers.publicDataProvider
+    .contractStateObservable(sources.contractAddress, { type: 'latest' })
+    .pipe(
+      map((raw) =>
+        derivePublicView(ledger(raw.data as never), sources.reviewThreshold),
       ),
     );
 }
