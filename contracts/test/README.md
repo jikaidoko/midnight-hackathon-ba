@@ -5,7 +5,7 @@ runs the first three; the fourth needs a chain.
 
 | Layer | Where | Question it answers |
 |---|---|---|
-| **Unit** | `src/*.test.ts` | Does each circuit enforce its own rules? |
+| **Unit** | `src/amparo.test.ts` (circuits, in the simulator) and `src/midnight/*.test.ts` (the TypeScript layer) | Does each circuit enforce its own rules, and does the client layer read them correctly? |
 | **Adversarial** | inside the unit files, marked `ADVERSARIAL` | Can a malicious client get away with it? |
 | **End to end** | `test/e2e/` | Does the product journey actually work, start to finish? |
 | **On chain** | `test/on-chain-run.md` | Do the proofs generate, submit, and get rejected for real? |
@@ -55,6 +55,11 @@ gap**, so they cannot quietly turn into claims we have not earned:
   counter counts distinct **secrets**, not distinct **people**. One actor with
   three invented secrets trips the under-review flag. Anchoring identity is the
   next step, and it is the one gap that still limits what output B can claim.
+- `amparo` test 30 — a response is written once and never rewritten, so a body
+  that opens an investigation and later closes it has nowhere on chain to say so.
+  The permanence that makes a dismissal costly is the same permanence that
+  freezes a verdict. Recording the sequence instead of the verdict needs an
+  append-only structure, which is a different design.
 
 The second gap on this list is gone. It read: the two contracts are not merged,
 so the filing side freezes the admitted root at construction and a case admitted

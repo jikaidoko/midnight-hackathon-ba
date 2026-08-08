@@ -21,14 +21,17 @@
 // absent throws here, with a sentence naming the role.
 //
 // The alternative — returning zeroes for the missing one — is worse in a way
-// worth spelling out. A zeroed `authoritySecret` produces a valid proof of a
-// FALSE statement about a digest that will not match `authorityCommitment`, and
-// the transaction dies inside the circuit with "Unrecognized authority", after
-// the proof was generated. A zeroed `subjectSecret` is worse still: it is a
-// perfectly usable identity that every caller shares, so filings made under it
-// collide with each other and the reporter silently becomes "whoever forgot to
-// set a secret". Failing before the proof, by name, is the cheap and honest
-// option.
+// worth spelling out, though not for the reason first written here. A zeroed
+// `authoritySecret` does not buy a proof of a false statement: the circuit's
+// asserts run locally, in `createUnprovenCallTx`, before anything reaches the
+// proof server, so it dies with "Unrecognized authority" and no proof exists.
+// The cost is a useless error rather than a wasted proof.
+//
+// A zeroed `subjectSecret` is the genuinely dangerous half, and it fails no
+// assert at all: it is a perfectly usable identity that every caller shares, so
+// filings made under it collide with each other and the reporter silently
+// becomes "whoever forgot to set a secret". Failing before the circuit, by role,
+// is what keeps that from ever being representable.
 //
 // Type mapping: `Bytes<32>` -> 32-byte `Uint8Array`.
 
