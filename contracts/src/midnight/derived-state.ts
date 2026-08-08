@@ -33,7 +33,16 @@
 // unfilable. There is one contract and no frozen root, so there is one stream
 // and no divergence to report.
 
-import { map, type Observable } from 'rxjs';
+import {
+  debounceTime,
+  map,
+  repeat,
+  retry,
+  tap,
+  timeout,
+  type MonoTypeOperatorFunction,
+  type Observable,
+} from 'rxjs';
 import { ledger, filingNullifier, type AmparoLedger } from './ledger.js';
 
 /** One admitted case, as this particular reporter sees it. */
@@ -150,10 +159,127 @@ interface StateObservableProvider {
   };
 }
 
-/** Live view: re-emits whenever the contract's state changes. */
+// ---------------------------------------------------------------------------
+// Keeping a chain subscription alive
+// ---------------------------------------------------------------------------
+//
+// The indexer's state stream ENDS ON ITS OWN, and this is the single most
+// expensive thing to learn about it, because it ends in the one way that looks
+// like success. Instrumenting next/error/complete against a stopped indexer:
+//
+//     +0.2s  NEXT
+//     +10.0s COMPLETE
+//
+// Not an error, so nothing retries it. Not silence, so nothing times it out. A
+// bare `contractStateObservable(...).pipe(map(...))` therefore stops forever
+// after any indexer hiccup, while every other signal stays green - no error, no
+// log, no gap a caller can notice. The UI goes on rendering its last snapshot
+// with total authority, which for the reporter's view means a person watching
+// their own filings silently stop appearing.
+//
+// Both views need this, so it lives here rather than in either caller. It was
+// first written inside the public-ledger script, where the fault was found; a
+// copy there and a missing one here is exactly how the reporter's view would
+// have kept the bug after it was understood.
+
+/** How a stream ended, for a caller that wants to surface it. */
+export type StreamEnding =
+  | { readonly kind: 'complete' }
+  | { readonly kind: 'timeout' }
+  | { readonly kind: 'error'; readonly message: string };
+
+export interface LivenessOptions {
+  /**
+   * Silence longer than this is treated as a dead socket and becomes a
+   * TimeoutError the reconnect can act on. It also bounds staleness: a view can
+   * never be older than one reconnect cycle, because a stream that has heard
+   * nothing for this long is torn down and re-read.
+   */
+  readonly heartbeatMs?: number;
+  /** Pause before resubscribing, so a dead indexer is polled rather than spun on. */
+  readonly reconnectMs?: number;
+  /**
+   * Quiet period an emission must survive before it is passed on.
+   *
+   * A resubscribe does not resume where the last one stopped: the indexer
+   * REPLAYS past states, so a reconnect arrives as a burst that walks the
+   * counters backwards and then forwards again. Measured, from one rebuild on a
+   * chain that was already at twelve reports:
+   *
+   *     [9:07:03] 10 reports
+   *     [9:07:03] 11 reports
+   *     [9:07:03] 12 reports
+   *
+   * On a screen that is a number jumping backwards. Collapsing the burst to its
+   * last value is what makes a reconnect invisible, which is the whole point of
+   * reconnecting automatically.
+   */
+  readonly settleMs?: number;
+  /** Notified on every ending, before the resubscribe. */
+  readonly onReconnect?: (ending: StreamEnding) => void;
+}
+
+const DEFAULT_HEARTBEAT_MS = 30_000;
+const DEFAULT_RECONNECT_MS = 2_000;
+const DEFAULT_SETTLE_MS = 250;
+
+/**
+ * Makes a chain subscription survive its own endings.
+ *
+ * Three operators for three different endings, and no two of them are
+ * interchangeable:
+ *
+ *   repeat    completion - the one actually observed against this indexer
+ *   retry     error      - a bad address, a rejected query
+ *   timeout   silence    - a socket still open and no longer delivering, which
+ *                          neither of the other two would ever notice
+ *
+ * Order matters. `timeout` sits innermost so that each resubscribe rebuilds it;
+ * above `retry`/`repeat` it would be armed once and never again.
+ *
+ * A caller that counts emissions should know that every resubscribe re-emits
+ * current state - `contractStateObservable` replays the latest state to a new
+ * subscriber - so an emission is not by itself evidence that anything changed.
+ * Compare before counting.
+ */
+export function keepAlive<T>(options: LivenessOptions = {}): MonoTypeOperatorFunction<T> {
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const reconnectMs = options.reconnectMs ?? DEFAULT_RECONNECT_MS;
+  const settleMs = options.settleMs ?? DEFAULT_SETTLE_MS;
+  const notify = options.onReconnect;
+
+  return (source) =>
+    source.pipe(
+      timeout({ each: heartbeatMs }),
+      tap({
+        error: (err: unknown) => {
+          const timedOut = err instanceof Error && err.name === 'TimeoutError';
+          notify?.(
+            timedOut
+              ? { kind: 'timeout' }
+              : { kind: 'error', message: err instanceof Error ? err.message : String(err) },
+          );
+        },
+        complete: () => notify?.({ kind: 'complete' }),
+      }),
+      retry({ delay: reconnectMs }),
+      repeat({ delay: reconnectMs }),
+      // Last, so it collapses bursts that span a resubscribe - which is exactly
+      // where they come from. Above `repeat` it would only ever see one
+      // subscription's worth and the replay would pass through untouched.
+      debounceTime(settleMs),
+    );
+}
+
+/**
+ * Live view: re-emits whenever the contract's state changes, and rebuilds its
+ * subscription whenever that subscription ends. See `keepAlive` for why the
+ * second half of that sentence is not optional.
+ */
 export function reporterView$(
   providers: StateObservableProvider,
   sources: ReporterViewSources,
+  liveness: LivenessOptions = {},
 ): Observable<ReporterView> {
   return providers.publicDataProvider
     .contractStateObservable(sources.contractAddress, { type: 'latest' })
@@ -165,6 +291,7 @@ export function reporterView$(
           sources.reviewThreshold,
         ),
       ),
+      keepAlive(liveness),
     );
 }
 
@@ -270,15 +397,17 @@ export interface PublicViewSources {
 }
 
 /**
- * Live public view: re-emits whenever the contract's state changes.
+ * Live public view: re-emits whenever the contract's state changes, and rebuilds
+ * its subscription whenever that subscription ends.
  *
- * Same subscription the reporter view uses, and deliberately so - the flag
- * flipping on screen is the same event the chain published, not a poll that
- * happened to catch it.
+ * Same stream the reporter view uses, and deliberately so - including the same
+ * `keepAlive`, because the fault it works around belongs to the stream and not
+ * to either view.
  */
 export function publicView$(
   providers: StateObservableProvider,
   sources: PublicViewSources,
+  liveness: LivenessOptions = {},
 ): Observable<PublicLedgerView> {
   return providers.publicDataProvider
     .contractStateObservable(sources.contractAddress, { type: 'latest' })
@@ -286,5 +415,6 @@ export function publicView$(
       map((raw) =>
         derivePublicView(ledger(raw.data as never), sources.reviewThreshold),
       ),
+      keepAlive(liveness),
     );
 }
