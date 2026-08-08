@@ -16,25 +16,23 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, FileSignature, MoveUp, ShieldX, Scale } from 'lucide-react'
 import { ControlShell } from '../../components/ControlShell'
-import { useOversightCase, useResponses } from '../../services/useOversight'
+import { useOversightCase } from '../../services/useOversight'
 import { responseService, titleOf } from '../../services'
-import {
-  GROUNDS_MAX_BYTES,
-  groundsByteLength,
-  type ResponseKind,
-} from '../../services/contracts'
+import { GROUNDS_BYTES, ResponseKind, groundsByteLength } from '../../services/contracts'
 
+// The contract's own enum, not a parallel set of strings. A string union here
+// would need mapping at the call site, and a mapping is a second statement of
+// the same three values that nothing compares.
 const KINDS: { value: ResponseKind; label: string; Icon: typeof Scale }[] = [
-  { value: 'investigation', label: 'Se abre investigación', Icon: Scale },
-  { value: 'referral', label: 'Se deriva a otro organismo', Icon: MoveUp },
-  { value: 'dismissal', label: 'Se desestima el caso', Icon: ShieldX },
+  { value: ResponseKind.investigation, label: 'Se abre investigación', Icon: Scale },
+  { value: ResponseKind.referral, label: 'Se deriva a otro organismo', Icon: MoveUp },
+  { value: ResponseKind.dismissal, label: 'Se desestima el caso', Icon: ShieldX },
 ]
 
 export default function RespondPage() {
   const navigate = useNavigate()
   const { id } = useParams()
   const kase = useOversightCase(id)
-  const responses = useResponses()
 
   const [kind, setKind] = useState<ResponseKind | null>(null)
   const [grounds, setGrounds] = useState('')
@@ -51,19 +49,16 @@ export default function RespondPage() {
     )
   }
 
-  const existing = responses.get(kase.caseCommitment)
   const used = groundsByteLength(grounds)
-  const over = used > GROUNDS_MAX_BYTES
+  const over = used > GROUNDS_BYTES
 
-  // Every reason the contract would refuse, checked before a proof is built.
-  const blocked =
-    !responseService.available
-      ? responseService.unavailableReason
-      : existing
-        ? 'Este caso ya tiene respuesta registrada. No se puede editar ni reemplazar.'
-        : !kase.underReview
-          ? 'El caso todavía no alcanzó el umbral. El organismo sólo responde casos escalados.'
-          : null
+  // Every reason the contract would refuse, read off the same public view the
+  // circuit will check, and checked before a proof is built rather than after.
+  const blocked = kase.answered
+    ? 'Este caso ya tiene respuesta registrada. No se puede editar ni reemplazar.'
+    : !kase.underReview
+      ? 'El caso todavía no alcanzó el umbral. El organismo sólo responde casos escalados.'
+      : null
 
   const canSubmit = !blocked && !busy && kind !== null && used > 0 && !over
 
@@ -137,7 +132,7 @@ export default function RespondPage() {
           <label className="field__label" htmlFor="grounds">
             <span>Fundamentación (queda pública)</span>
             <span className={`hint ${over ? 'over' : ''}`}>
-              {used} / {GROUNDS_MAX_BYTES} bytes
+              {used} / {GROUNDS_BYTES} bytes
             </span>
           </label>
           <textarea

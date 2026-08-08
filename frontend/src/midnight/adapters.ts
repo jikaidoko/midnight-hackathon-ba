@@ -21,12 +21,11 @@ import {
   publicView$,
 } from '@amparo/contracts/derived-state'
 
-import { ledger, filingNullifier } from '@amparo/contracts/ledger'
+import { ledger, filingNullifier, encodeGrounds } from '@amparo/contracts/ledger'
 import { amparoContract } from './contract'
 import type { CaseView, PublicLedgerView, ReporterView } from '@amparo/contracts/derived-state'
 
 import type {
-  CaseResponseView,
   CredentialService,
   OversightFeed,
   ReporterFeed,
@@ -34,6 +33,7 @@ import type {
   ResponseService,
   TxResult,
 } from '../services/contracts'
+import type { ResponseKind } from '@amparo/contracts/ledger'
 import type { AmparoConfig } from './config'
 import { PRIVATE_STATE_ID, type AmparoProviders } from './providers'
 import { filingsElsewhere, filingsFor, fromHex, recordFiling, subjectSecret } from './subject-store'
@@ -135,35 +135,63 @@ export class ChainOversightFeed implements OversightFeed {
 }
 
 /**
- * Writing a response needs a circuit this build does not carry.
+ * Records the control body's answer on chain.
  *
- * It reports that instead of throwing at the call site, and the difference
- * matters: the screen reads `available` and renders the reason next to a
- * disabled control, so the gap is visible BEFORE someone writes a full
- * justification into a form that was never going to submit it.
+ * Two pre-flights, and both exist because a proof costs real seconds while the
+ * circuit's rejection arrives as one opaque assert after the wait:
  *
- * When the circuit lands, this class is replaced by one that calls
- * `respondToCase` — and nothing above it changes, because the screens already
- * treat "cannot write" as a state rather than an exception.
+ *   - the case is escalated. Answering one that never escalated would put a
+ *     diligent-looking reply on the public record for something nobody watched
+ *     escalate.
+ *   - it has no answer yet. The entry is write-once and permanent.
+ *
+ * `encodeGrounds` is imported rather than reimplemented, and it THROWS on
+ * overflow instead of truncating. That is the behaviour worth importing: cutting
+ * UTF-8 at a byte offset splits whatever character straddles it, and this is the
+ * last place that can still refuse.
  */
-export class UnavailableResponses implements ResponseService {
-  readonly available = false
-  readonly unavailableReason =
-    'Este build no incluye el circuito de respuesta, así que en modo cadena no se puede ' +
-    'registrar ninguna. El flujo completo corre en modo demostración.'
+export class ChainResponseService implements ResponseService {
+  constructor(
+    private readonly providers: AmparoProviders,
+    private readonly config: AmparoConfig,
+  ) {}
 
-  private static readonly EMPTY: ReadonlyMap<string, CaseResponseView> = new Map()
+  async respond(
+    caseCommitment: string,
+    kind: ResponseKind,
+    grounds: string,
+    detail = '',
+  ): Promise<TxResult> {
+    const commitment = fromHex(caseCommitment, 'case commitment')
 
-  responses(): ReadonlyMap<string, CaseResponseView> {
-    return UnavailableResponses.EMPTY
-  }
+    const raw = await this.providers.publicDataProvider.queryContractState(
+      this.config.contractAddress,
+    )
+    if (!raw) throw new Error('Contract has no state on chain')
+    const state = ledger(raw.data as never)
 
-  subscribe(): () => void {
-    return () => {}
-  }
+    if (!state.casesUnderReview.member(commitment)) {
+      throw new Error(
+        'El caso todavía no alcanzó el umbral. El organismo sólo responde casos escalados.',
+      )
+    }
+    if (state.caseResponses.member(commitment)) {
+      throw new Error('Este caso ya tiene respuesta registrada, y no se puede editar.')
+    }
 
-  async respond(): Promise<TxResult> {
-    throw new Error(this.unavailableReason)
+    const contract = await deployedAmparo(this.providers, this.config)
+    const called = await (contract as unknown as {
+      callTx: {
+        respondToCase(
+          caseCommitment: Uint8Array,
+          kind: ResponseKind,
+          grounds: Uint8Array,
+          detail: string,
+        ): Promise<{ public: { txId: string } }>
+      }
+    }).callTx.respondToCase(commitment, kind, encodeGrounds(grounds), detail)
+
+    return { txId: called.public.txId }
   }
 }
 

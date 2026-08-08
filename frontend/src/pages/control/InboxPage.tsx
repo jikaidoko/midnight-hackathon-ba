@@ -11,25 +11,24 @@
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Clock, Info, Hourglass, CheckCircle2 } from 'lucide-react'
 import { ControlShell } from '../../components/ControlShell'
-import { useOversightView, useResponses } from '../../services/useOversight'
+import { useOversightView } from '../../services/useOversight'
 import { titleOf } from '../../services'
-import type { CaseResponseView, PublicCaseView } from '../../services/contracts'
+import { ResponseKind } from '../../services/contracts'
+import type { PublicCaseView } from '../../services/contracts'
 
-const KIND_LABEL: Record<CaseResponseView['kind'], string> = {
-  investigation: 'Investigación abierta',
-  referral: 'Derivado a otro organismo',
-  dismissal: 'Desestimado',
+const KIND_LABEL: Record<ResponseKind, string> = {
+  [ResponseKind.investigation]: 'Investigación abierta',
+  [ResponseKind.referral]: 'Derivado a otro organismo',
+  [ResponseKind.dismissal]: 'Desestimado',
 }
 
 function EscalatedCard({
   kase,
   threshold,
-  response,
   onOpen,
 }: {
   kase: PublicCaseView
   threshold: bigint
-  response: CaseResponseView | undefined
   onOpen: () => void
 }) {
   const late = kase.reportsAfterEscalation
@@ -59,9 +58,13 @@ function EscalatedCard({
       </div>
 
       <div className="case-card__side">
-        {response ? (
+        {/* `answered` and the label come from the same public view as the
+            counts. A second source for this fact is a second source that can
+            disagree, and the way it disagrees is showing "sin respuesta" over a
+            case the body answered an hour ago. */}
+        {kase.answered && kase.kind !== undefined ? (
           <span className="chip calm">
-            <CheckCircle2 size={16} /> {KIND_LABEL[response.kind]}
+            <CheckCircle2 size={16} /> {KIND_LABEL[kase.kind]}
           </span>
         ) : (
           <span className="chip bare danger">
@@ -69,7 +72,7 @@ function EscalatedCard({
           </span>
         )}
         <button className="btn-solid" onClick={onOpen}>
-          {response ? 'Ver caso' : 'Registrar respuesta'}
+          {kase.answered ? 'Ver caso' : 'Registrar respuesta'}
         </button>
       </div>
     </article>
@@ -79,7 +82,6 @@ function EscalatedCard({
 export default function InboxPage() {
   const navigate = useNavigate()
   const view = useOversightView()
-  const responses = useResponses()
 
   if (!view) {
     return (
@@ -121,7 +123,6 @@ export default function InboxPage() {
               key={kase.caseCommitment}
               kase={kase}
               threshold={view.reviewThreshold}
-              response={responses.get(kase.caseCommitment)}
               onOpen={() => navigate(`/control/${kase.caseCommitment}`)}
             />
           ))}

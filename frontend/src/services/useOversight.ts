@@ -6,8 +6,8 @@
 // and says so. Joining them into one hook would hide which half went missing.
 
 import { useEffect, useState } from 'react'
-import type { CaseResponseView, PublicLedgerView } from './contracts'
-import { oversightFeed, responseService } from '.'
+import type { PublicLedgerView } from './contracts'
+import { oversightFeed } from '.'
 
 export function useOversightView(): PublicLedgerView | null {
   const [view, setView] = useState<PublicLedgerView | null>(() => oversightFeed.current())
@@ -35,26 +35,4 @@ export function useOversightCase(caseCommitment: string | undefined) {
   const view = useOversightView()
   if (!view || !caseCommitment) return null
   return view.cases.find((c) => c.caseCommitment === caseCommitment) ?? null
-}
-
-/**
- * Responses on record.
- *
- * A map with missing keys, never entries with blank fields: absence is the
- * observable this whole surface is built around, and a screen cannot tell an
- * empty string from an unanswered case.
- */
-export function useResponses(): ReadonlyMap<string, CaseResponseView> {
-  const [responses, setResponses] = useState(() => responseService.responses())
-
-  useEffect(() => {
-    // The service hands back the same Map instance it mutates, so a new Map is
-    // built here on every change. Without the copy React compares the object to
-    // itself, finds it unchanged, and skips the render that was the point.
-    const sync = () => setResponses(new Map(responseService.responses()))
-    sync()
-    return responseService.subscribe(sync)
-  }, [])
-
-  return responses
 }

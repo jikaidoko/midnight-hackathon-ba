@@ -8,14 +8,14 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowRight, ArrowLeft, ShieldCheck, GitCommitVertical, CheckCircle2 } from 'lucide-react'
 import { ControlShell } from '../../components/ControlShell'
-import { useOversightCase, useOversightView, useResponses } from '../../services/useOversight'
+import { useOversightCase, useOversightView } from '../../services/useOversight'
 import { titleOf } from '../../services'
-import type { CaseResponseView } from '../../services/contracts'
+import { ResponseKind } from '../../services/contracts'
 
-const KIND_LABEL: Record<CaseResponseView['kind'], string> = {
-  investigation: 'Se abrió investigación',
-  referral: 'Se derivó a otro organismo',
-  dismissal: 'Se desestimó el caso',
+const KIND_LABEL: Record<ResponseKind, string> = {
+  [ResponseKind.investigation]: 'Se abrió investigación',
+  [ResponseKind.referral]: 'Se derivó a otro organismo',
+  [ResponseKind.dismissal]: 'Se desestimó el caso',
 }
 
 export default function CasePage() {
@@ -23,7 +23,6 @@ export default function CasePage() {
   const { id } = useParams()
   const view = useOversightView()
   const kase = useOversightCase(id)
-  const responses = useResponses()
 
   if (!view) {
     return (
@@ -47,7 +46,6 @@ export default function CasePage() {
   }
 
   const threshold = view.reviewThreshold
-  const response = responses.get(kase.caseCommitment)
   const after = kase.reportsAfterEscalation
 
   return (
@@ -125,16 +123,18 @@ export default function CasePage() {
         </div>
       </section>
 
-      {response ? (
+      {kase.answered && kase.kind !== undefined ? (
         <section className="panel wide">
           <div className="panel-head">
             <h2>
-              <CheckCircle2 size={22} /> {KIND_LABEL[response.kind]}
+              <CheckCircle2 size={22} /> {KIND_LABEL[kase.kind]}
             </h2>
             <span className="chip calm">Respuesta registrada</span>
           </div>
-          <p>{response.grounds}</p>
-          <p className="mono">{response.txId}</p>
+          <p>{kase.grounds}</p>
+          {/* The unbounded half, shown only when the body wrote one. Absent and
+              empty are different things and the view keeps them apart. */}
+          {kase.detail ? <p className="muted">{kase.detail}</p> : null}
         </section>
       ) : null}
 
@@ -145,7 +145,7 @@ export default function CasePage() {
         {/* Only escalated, unanswered cases get the action. The contract refuses
             the rest, and offering the button anyway would spend a proof to
             learn what this view already knows. */}
-        {kase.underReview && !response && (
+        {kase.underReview && !kase.answered && (
           <button
             className="btn-solid pill"
             onClick={() => navigate(`/control/${kase.caseCommitment}/respond`)}

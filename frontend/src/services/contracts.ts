@@ -20,8 +20,13 @@
 //   CredentialService.present -> proveRepeatFilings(cases, paths, root, context)
 //   DisclosureService         -> NOTHING. See below.
 
-import type { CaseView, ReporterView } from '@amparo/contracts/derived-state'
-import type { PublicCaseView, PublicLedgerView } from '@amparo/contracts/derived-state'
+import type {
+  CaseView,
+  PublicCaseView,
+  PublicLedgerView,
+  ReporterView,
+} from '@amparo/contracts/derived-state'
+import { GROUNDS_BYTES, ResponseKind } from '@amparo/contracts/ledger'
 
 export type { CaseView, ReporterView, PublicCaseView, PublicLedgerView }
 
@@ -154,56 +159,51 @@ export interface OversightFeed {
   current(): PublicLedgerView | null
 }
 
-/** What the body decided. Matches the circuit's `ResponseKind` ordering. */
-export type ResponseKind = 'investigation' | 'referral' | 'dismissal'
-
-export interface CaseResponseView {
-  readonly kind: ResponseKind
-  /** Public reasoning, permanent and unrewritable. */
-  readonly grounds: string
-  readonly txId: string
-}
+/**
+ * What the body decided. The contract's own enum, not a copy.
+ *
+ * Re-exported rather than restated as a string union: a union would have to be
+ * mapped to the enum at the call site, and a mapping is a second statement of
+ * the same three values that nothing compares.
+ */
+export { ResponseKind }
 
 /**
- * Grounds are a fixed-width field on chain, and this is the pre-flight for it.
+ * The grounds budget, from the contract layer rather than repeated here.
  *
- * BYTES, not characters: Spanish with accents runs around 230 in this budget,
- * so a character counter would let someone write past the limit and only find
- * out at submission. Counted here so the form can say so while they type.
+ * BYTES, not characters — Spanish with accents runs out around 230 of these, so
+ * a character counter would let someone write past the limit and only find out
+ * at submission with the whole justification typed.
  *
- * The on-chain encoder is the authority and it REFUSES rather than truncates —
- * cutting UTF-8 at a byte offset splits whatever character straddles it, and
- * this entry can never be rewritten, so refusing is the last chance anyone gets.
+ * `encodeGrounds` is the authority and it REFUSES rather than truncates: cutting
+ * UTF-8 at a byte offset splits whatever character straddles it, and the entry
+ * can never be rewritten, so refusing is the last chance anyone gets. This
+ * counter exists so the form can say so WHILE they type; it does not decide.
  */
-export const GROUNDS_MAX_BYTES = 256
+export { GROUNDS_BYTES }
 
 export function groundsByteLength(text: string): number {
   return new TextEncoder().encode(text.trim()).length
 }
 
+/**
+ * Recording the body's answer. WRITES ONLY.
+ *
+ * There is deliberately no read side here. Responses are public ledger state,
+ * so they arrive through `OversightFeed` on `PublicCaseView.answered` and its
+ * companions, and a second source for the same fact is a second source that can
+ * disagree — which is how a screen ends up showing "sin respuesta registrada"
+ * over a case that was answered on chain an hour ago.
+ *
+ * Absence is the observable, and the view preserves it properly: an unanswered
+ * case has no `grounds` key at all rather than an empty one. Blank and absent
+ * render identically and mean opposite things.
+ */
 export interface ResponseService {
-  /**
-   * Whether this build can write a response at all.
-   *
-   * Rendered, not swallowed. A form that submits into a service which cannot
-   * write is the same lie as a nav entry that goes nowhere, and it costs
-   * whoever is testing the time to discover it by typing a full justification.
-   */
-  readonly available: boolean
-  /** Why not, in words a screen can show. Null when `available`. */
-  readonly unavailableReason: string | null
-
-  /**
-   * Responses on record, keyed by case commitment.
-   *
-   * ABSENCE is the observable, so this is a map with missing keys rather than
-   * entries with empty fields: blank and absent render identically and mean the
-   * opposite things. An escalated case that is not in here is public evidence
-   * that the body was told and said nothing.
-   */
-  responses(): ReadonlyMap<string, CaseResponseView>
-  /** Notifies on any change to the map above. Returns the unsubscribe. */
-  subscribe(onChange: () => void): () => void
-
-  respond(caseCommitment: string, kind: ResponseKind, grounds: string): Promise<TxResult>
+  respond(
+    caseCommitment: string,
+    kind: ResponseKind,
+    grounds: string,
+    detail?: string,
+  ): Promise<TxResult>
 }

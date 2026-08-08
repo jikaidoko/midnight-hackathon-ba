@@ -15,7 +15,6 @@
 // stage, because that is the first time anyone runs the real thing end to end.
 
 import type {
-  CaseResponseView,
   CaseView,
   CredentialService,
   DisclosureReceipt,
@@ -27,12 +26,11 @@ import type {
   ReporterFeed,
   ReporterView,
   ReportingService,
-  ResponseKind,
   ResponseService,
   IdentityService,
   TxResult,
 } from './contracts'
-import { GROUNDS_MAX_BYTES, groundsByteLength } from './contracts'
+import { GROUNDS_BYTES, ResponseKind, groundsByteLength } from './contracts'
 
 /** Matches `CREDENTIAL_FILINGS` in the contract layer, and the circuit's arity. */
 const CREDENTIAL_FILINGS = 3
@@ -51,6 +49,15 @@ interface MockCase {
   reports: bigint
   /** This reporter filed against it. Private to them. */
   hasFiled: boolean
+  /**
+   * The body's answer, ABSENT until there is one.
+   *
+   * Optional rather than a nullable record with blank fields, mirroring the
+   * ledger: on chain an unanswered case has no entry in `caseResponses` at all,
+   * and the whole accountability claim rests on absence being distinguishable
+   * from silence-written-down.
+   */
+  response?: { kind: ResponseKind; grounds: string; detail: string }
 }
 
 /**
@@ -136,6 +143,13 @@ class MockChain implements ReporterFeed {
         reportsAfterEscalation:
           underReview && c.reports > REVIEW_THRESHOLD ? c.reports - REVIEW_THRESHOLD : 0n,
         reportsToReview: underReview ? 0n : REVIEW_THRESHOLD - c.reports,
+        answered: c.response !== undefined,
+        // Spread, so an unanswered case has no `grounds` key rather than an
+        // empty one - the same shape `derivePublicView` produces, because a
+        // mock that flattened it would hide the distinction the screens read.
+        ...(c.response
+          ? { kind: c.response.kind, grounds: c.response.grounds, detail: c.response.detail }
+          : {}),
       }
     })
     const byReports = (a: PublicCaseView, b: PublicCaseView): number =>
@@ -145,6 +159,7 @@ class MockChain implements ReporterFeed {
       underReview: projected.filter((c) => c.underReview).sort(byReports),
       approaching: projected.filter((c) => !c.underReview).sort(byReports),
       cases: projected,
+      unanswered: projected.filter((c) => c.underReview && !c.answered),
       admittedCount: BigInt(this.cases.length),
       underReviewCount: projected.filter((c) => c.underReview).length,
       totalReports: projected.reduce((n, c) => n + c.reports, 0n),
@@ -188,9 +203,23 @@ class MockChain implements ReporterFeed {
     }
   }
 
-  /** Public corroboration count for one case, or null if it is not admitted. */
-  reportsOf(caseCommitment: string): bigint | null {
-    return this.cases.find((c) => c.caseCommitment === caseCommitment)?.reports ?? null
+  /** One admitted case, or undefined. Mutable: the services write through it. */
+  caseFor(caseCommitment: string): MockCase | undefined {
+    return this.cases.find((c) => c.caseCommitment === caseCommitment)
+  }
+
+  /**
+   * Writes the body's answer and re-emits BOTH views.
+   *
+   * Re-emitting is the point: a response changes public state, so every screen
+   * watching has to see it without asking. A mock that stored it privately
+   * would make the backlog look unanswered until a reload.
+   */
+  recordResponse(caseCommitment: string, response: NonNullable<MockCase['response']>): void {
+    const target = this.caseFor(caseCommitment)
+    if (!target) throw new Error('Case is not in the admitted registry')
+    target.response = response
+    this.emit()
   }
 
   async *view$(): AsyncIterable<ReporterView> {
@@ -269,30 +298,20 @@ export const oversightFeed: OversightFeed = {
  *     narrow one — an unbounded field cannot be constrained in a circuit at all.
  */
 class MockResponses implements ResponseService {
-  readonly available = true
-  readonly unavailableReason = null
-
-  private readonly recorded = new Map<string, CaseResponseView>()
-  private readonly watchers = new Set<() => void>()
-
-  responses(): ReadonlyMap<string, CaseResponseView> {
-    return this.recorded
-  }
-
-  subscribe(onChange: () => void): () => void {
-    this.watchers.add(onChange)
-    return () => this.watchers.delete(onChange)
-  }
-
-  async respond(caseCommitment: string, kind: ResponseKind, grounds: string): Promise<TxResult> {
-    const reports = chain.reportsOf(caseCommitment)
-    if (reports === null) throw new Error('Este caso no está en el registro de casos admitidos.')
-    if (reports < REVIEW_THRESHOLD) {
+  async respond(
+    caseCommitment: string,
+    kind: ResponseKind,
+    grounds: string,
+    detail = '',
+  ): Promise<TxResult> {
+    const target = chain.caseFor(caseCommitment)
+    if (!target) throw new Error('Este caso no está en el registro de casos admitidos.')
+    if (target.reports < REVIEW_THRESHOLD) {
       throw new Error(
         'El caso todavía no alcanzó el umbral. El organismo sólo responde casos escalados.',
       )
     }
-    if (this.recorded.has(caseCommitment)) {
+    if (target.response) {
       throw new Error('Este caso ya tiene respuesta registrada, y no se puede editar.')
     }
 
@@ -300,21 +319,17 @@ class MockResponses implements ResponseService {
     if (!trimmed) throw new Error('La fundamentación es obligatoria.')
 
     const size = groundsByteLength(trimmed)
-    if (size > GROUNDS_MAX_BYTES) {
-      // Refuses instead of truncating, like the encoder it stands in for.
+    if (size > GROUNDS_BYTES) {
+      // Refuses instead of truncating, exactly like `encodeGrounds`, which is
+      // what would reject this on chain.
       throw new Error(
-        `La fundamentación ocupa ${size} bytes y el máximo es ${GROUNDS_MAX_BYTES}. ` +
+        `La fundamentación ocupa ${size} bytes y el máximo es ${GROUNDS_BYTES}. ` +
           'Se rechaza en vez de recortarse: la entrada es permanente y no se puede reescribir.',
       )
     }
 
     await wait(PROVE_MS)
-    this.recorded.set(caseCommitment, {
-      kind,
-      grounds: trimmed,
-      txId: `mock-response-${caseCommitment.slice(0, 8)}`,
-    })
-    for (const watcher of this.watchers) watcher()
+    chain.recordResponse(caseCommitment, { kind, grounds: trimmed, detail })
     return { txId: `mock-response-${caseCommitment.slice(0, 8)}` }
   }
 }

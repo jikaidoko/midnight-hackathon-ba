@@ -16,7 +16,7 @@ import {
   ChainOversightFeed,
   ChainReporterFeed,
   ChainReportingService,
-  UnavailableResponses,
+  ChainResponseService,
 } from '../midnight/adapters'
 import type {
   CredentialService,
@@ -69,9 +69,7 @@ function chainServices(): Services {
     // Public state, no secret, no wallet. Readable here for the same reason it
     // is readable by anyone: that is the accountability claim.
     oversightFeed: new ChainOversightFeed(providers, config),
-    // Reads work; writing needs a circuit this build does not carry. It reports
-    // that as a state the screens render rather than as a throw at submit time.
-    responseService: new UnavailableResponses(),
+    responseService: new ChainResponseService(providers, config),
     // Neither of these has a circuit. They are the same demo stand-ins in both
     // modes, and both say so on screen.
     disclosureService: mockDisclosure,
