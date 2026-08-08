@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Amparo - Compact circuits for a private whistleblowing channel (Midnight Hackathon BA).",
+  "description": "Amparo - Compact circuits for a private reporting channel (Midnight Hackathon BA).",
   "license": "Apache-2.0",
   "scripts": {
     "compile": "compact compile src/amparo.compact src/managed/amparo",
@@ -19,7 +19,8 @@
     "deploy": "tsx scripts/deploy.ts",
     "admit-case": "tsx scripts/admit-case.ts",
     "file-report": "tsx scripts/file-report.ts",
-    "prove-credential": "tsx scripts/prove-credential.ts"
+    "prove-credential": "tsx scripts/prove-credential.ts",
+    "ledger-view": "tsx scripts/ledger-view.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.16.0",
@@ -76,8 +77,11 @@
     "moment a newer patch exists. The pinned versions satisfy every other declared range, so",
     "the override picks a winner rather than forcing an unsupported combination.",
     "",
-    "Verify after any dependency change: `npm ls @midnight-ntwrk/ledger-v8` and",
-    "`npm ls @midnight-ntwrk/onchain-runtime-v3` must each report a single version. Neither",
-    "typecheck nor the simulator tests can see this - they never build a transaction."
+    "Verify after any dependency change: `npm run check-wasm`, from frontend/. Run it there",
+    "rather than `npm ls` here, because a per-tree check cannot see the case that matters.",
+    "The browser bundle draws from BOTH trees - the generated contract resolves the runtime",
+    "from this one - so two trees each holding a single version can still hold two DIFFERENT",
+    "versions, and every per-tree `npm ls` reports success. Neither typecheck nor the",
+    "simulator tests can see any of it - they never build a transaction."
   ]
 }

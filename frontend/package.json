@@ -1,0 +1,61 @@
+{
+  "name": "amparo-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "check-wasm": "node scripts/check-wasm.mjs",
+    "copy-zk": "node scripts/copy-zk.mjs",
+    "build:chain": "npm run copy-zk && npm run build"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/midnight-js-contracts": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "^4.1.1",
+    "assert": "^2.1.0",
+    "events": "^3.3.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.0",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1"
+  },
+  "overrides": {
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  },
+  "comment:overrides": [
+    "Same block as the contract package, and load-bearing for the same reason: each wasm",
+    "package carries its own instance owning its own classes, so an object built by one copy",
+    "fails the other's internal type check - 'expected instance of LedgerParameters' - from",
+    "inside a dependency, mid-transaction, with nothing pointing at the duplication.",
+    "",
+    "It is repeated here rather than inherited because the two packages keep separate",
+    "node_modules trees on purpose. An npm workspace would hoist them into one, which is the",
+    "arrangement that reintroduces the duplicate in the first place.",
+    "",
+    "Verify with: npm run check-wasm. Not `npm ls`, which reads one tree and cannot see the",
+    "case that matters: the bundle draws from BOTH trees, so two trees each holding a single",
+    "version can still hold two DIFFERENT versions while every per-tree check reports success.",
+    "Neither the typecheck nor the tests can see any of it - they never build a transaction."
+  ]
+}

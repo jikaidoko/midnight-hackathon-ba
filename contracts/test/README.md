@@ -1,19 +1,27 @@
 # Tests
 
-Three layers, each answering a different question. Run them all with
-`npm test` from `contracts/`.
+Four layers, each answering a different question. `npm test` from `contracts/`
+runs the first three; the fourth needs a chain.
 
 | Layer | Where | Question it answers |
 |---|---|---|
 | **Unit** | `src/*.test.ts` | Does each circuit enforce its own rules? |
 | **Adversarial** | inside the unit files, marked `ADVERSARIAL` | Can a malicious client get away with it? |
 | **End to end** | `test/e2e/` | Does the product journey actually work, start to finish? |
+| **On chain** | `test/on-chain-run.md` | Do the proofs generate, submit, and get rejected for real? |
 
-Everything runs in the Compact **simulator**: circuit logic executes
+The first three run in the Compact **simulator**: circuit logic executes
 deterministically with no ZK proof generated, no testnet, no DUST and no proof
 server. That is what makes the suite a sub-two-second loop instead of a
-multi-minute one. It also means the suite does **not** exercise proving,
-transaction submission or finality — see "Not covered".
+multi-minute one, and it is why they are the loop you work in.
+
+What the simulator cannot tell you is whether any of it survives contact with a
+chain. That is the fourth layer, and it is a **recorded run** rather than an
+automated one: `on-chain-run.md` documents a full journey against a local
+standalone network with real proofs, including the presentation that had to be
+rejected and was. It is deliberately not part of `npm test` — it needs Docker, a
+synced wallet and minutes rather than seconds, and a suite that cannot run
+offline is a suite people stop running.
 
 ## Why the adversarial tests matter most
 
@@ -57,11 +65,19 @@ journey now assert the opposite — a late case is filable immediately.
 
 Honest list, so nobody assumes otherwise:
 
-- Proof generation and verification (simulator only).
-- Transaction submission, fees, DUST, finality.
+- **A public network.** The on-chain run used a local standalone chain: pre-funded
+  genesis wallet, no faucet, no fee pressure, no contention, nobody else writing.
+  Timing and failure modes on a public network are not evidenced anywhere here.
+- **The browser.** Every on-chain step ran through the Node scripts in
+  `contracts/scripts/`. The interface assembles its transactions through a
+  different provider set, so a passing script says nothing about it.
 - The off-chain verifier guard is exercised in tests, but nothing forces a real
   verifier to call it. That obligation lives in `src/verifier.ts` and has to be
   honoured by whoever integrates.
 - Mirror resynchronisation after a failed on-chain write. The nullifier tree
   avoids this by reading paths from the ledger; the case registry does not.
-- Frontend and wallet integration.
+
+Two entries left this list and are now covered by `on-chain-run.md`: proof
+generation and verification, and transaction submission and finality. They are
+listed there with transaction ids rather than deleted, because "covered" for
+that layer means *one recorded run*, not a check that repeats on every commit.

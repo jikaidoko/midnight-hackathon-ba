@@ -18,21 +18,20 @@
 // copy of the package.
 
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
-import {
-  Contract,
-  ledger,
-  pureCircuits,
-  type Ledger as AmparoLedger,
-} from '../managed/amparo/contract/index.js';
+import { Contract } from '../managed/amparo/contract/index.js';
 import { witnesses, type AmparoPrivateState } from '../amparo-witnesses.js';
 import { loadConfig, type MidnightConfig } from './config.js';
 import { AMPARO, contractDir, type ContractSpec } from './contracts.js';
 
-export { ledger, pureCircuits };
+// Ledger decoding and the pure-circuit helpers live in `ledger.ts`, which has
+// no filesystem or environment dependency, so a browser can import them
+// without the descriptor below. Re-exported here so existing callers are
+// unaffected.
+export { ledger, pureCircuits, authorityCommitment, filingNullifier } from './ledger.js';
+export type { AmparoLedger } from './ledger.js';
 export type { AmparoPrivateState };
 // Re-exported so nothing outside this module has to reach into `src/managed/`,
 // which is the invariant that keeps the compiler output layout in one place.
-export type { AmparoLedger };
 
 /**
  * The contract descriptor: class, witnesses, and where its ZK assets live.
@@ -49,41 +48,4 @@ export function amparoContract(
     CompiledContract.withWitnesses(witnesses),
     CompiledContract.withCompiledFileAssets(contractDir(spec, config)),
   );
-}
-
-/**
- * Public commitment of an authority secret.
- *
- * This delegates to the contract's own exported pure circuit rather than
- * recomputing the hash in TypeScript. That is not a style preference: the
- * circuit re-derives this value from the witness at proving time and compares it
- * against what the ledger holds, so a hand-written reimplementation that differs
- * in any detail - domain string, padding, hash - produces a commitment that can
- * never be satisfied, and the failure surfaces as a rejected proof rather than
- * as a mismatch anyone can read.
- */
-export function authorityCommitment(secret: Uint8Array): Uint8Array {
-  if (secret.length !== 32) {
-    throw new Error(`authority secret must be 32 bytes long (got ${secret.length})`);
-  }
-  return pureCircuits.authorityDigest(secret);
-}
-
-/**
- * The nullifier a filing by `secret` against `caseCommitment` writes on chain.
- *
- * Same reasoning as `authorityCommitment`: the leaf the circuit checks a Merkle
- * path against is derived by `filingNullifierOf` inside the proof, so the client
- * has to look up the leaf using that exact function. A reimplementation that
- * differs in the domain string produces a leaf that is not in the tree, and the
- * path lookup returns undefined with nothing to point at the cause.
- */
-export function filingNullifier(secret: Uint8Array, caseCommitment: Uint8Array): Uint8Array {
-  if (secret.length !== 32) {
-    throw new Error(`subject secret must be 32 bytes long (got ${secret.length})`);
-  }
-  if (caseCommitment.length !== 32) {
-    throw new Error(`case commitment must be 32 bytes long (got ${caseCommitment.length})`);
-  }
-  return pureCircuits.filingNullifierOf(secret, caseCommitment);
 }
