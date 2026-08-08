@@ -331,7 +331,13 @@ test('10. ADVERSARIAL: no reporter-derived value reaches the public view', () =>
   assert.deepEqual(
     Object.keys(e.publicView()).sort(),
     [
-      'admittedCount', 'cases', 'reviewThreshold', 'totalReports', 'unanswered',
+      'admittedCount',
+      'approaching',
+      'cases',
+      'reviewThreshold',
+      'totalReports',
+      'unanswered',
+      'underReview',
       'underReviewCount',
     ],
   );
@@ -343,6 +349,107 @@ test('10. ADVERSARIAL: no reporter-derived value reaches the public view', () =>
   // where a response can actually be recorded.
   assert.deepEqual(
     Object.keys(publicCaseOf(e.publicView(), CASE_A)).sort(),
-    ['answered', 'caseCommitment', 'reports', 'reportsToReview', 'underReview'],
+    [
+      'answered',
+      'caseCommitment',
+      'reports',
+      'reportsAfterEscalation',
+      'reportsToReview',
+      'underReview',
+    ],
   );
+});
+
+// ---------------------------------------------------------------------------
+// The backlog partition — what an oversight screen works through
+// ---------------------------------------------------------------------------
+
+const hexOf = (kase: Uint8Array) => Buffer.from(kase).toString('hex');
+
+test('11. the two groups partition the registry at the contract’s own flag', () => {
+  const e = setup();
+
+  let v = e.publicView();
+  assert.equal(v.underReview.length, 0, 'nothing is the body’s to answer yet');
+  assert.equal(v.approaching.length, 3);
+
+  e.file(SOFIA, CASE_A);
+  e.file(NEIGHBOUR_1, CASE_A);
+  v = e.publicView();
+  assert.equal(v.underReview.length, 0, 'two is below the bar');
+  assert.equal(v.approaching.length, 3);
+
+  e.file(NEIGHBOUR_2, CASE_A);
+  v = e.publicView();
+  assert.deepEqual(v.underReview.map((c) => c.caseCommitment), [hexOf(CASE_A)]);
+  assert.equal(v.approaching.length, 2);
+
+  // A partition, not a filter: nothing is dropped and nothing is counted twice.
+  assert.equal(v.underReview.length + v.approaching.length, v.cases.length);
+  assert.equal(v.underReview.length, v.underReviewCount);
+});
+
+test('12. both groups are ordered most corroborated first', () => {
+  const e = setup();
+
+  for (const s of [SOFIA, NEIGHBOUR_1, NEIGHBOUR_2]) e.file(s, CASE_B);
+  for (const s of [SOFIA, NEIGHBOUR_1, NEIGHBOUR_2, STRANGER]) e.file(s, CASE_A);
+  e.file(SOFIA, CASE_C);
+
+  const v = e.publicView();
+  assert.deepEqual(
+    v.underReview.map((c) => c.caseCommitment),
+    [hexOf(CASE_A), hexOf(CASE_B)],
+    'four corroborations outrank three',
+  );
+
+  e.admit(LATE_CASE);
+  assert.deepEqual(
+    e.publicView().approaching.map((c) => c.caseCommitment),
+    [hexOf(CASE_C), hexOf(LATE_CASE)],
+    'one corroboration outranks none',
+  );
+
+  // `cases` keeps the ledger's own order, which the partitions must not disturb.
+  //
+  // Asserted as "not sorted by corroboration" rather than against a literal
+  // sequence: `admittedIndex` does NOT iterate in insertion order. Measured -
+  // admitting A, B, C then LATE yields B, C, LATE, A. So a literal expectation
+  // would encode an ADT internal that nobody promised, and the field's contract
+  // is only that it is the ledger's order rather than a view's.
+  const v2 = e.publicView();
+  const order = v2.cases.map((c) => c.reports);
+  const descending = [...order].sort((a, b) => (a === b ? 0 : a > b ? -1 : 1));
+  assert.notDeepEqual(
+    order,
+    descending,
+    '`cases` came back sorted by corroboration: the partition sorted it in place',
+  );
+  assert.deepEqual(
+    [...v2.underReview, ...v2.approaching].map((c) => c.caseCommitment).sort(),
+    v2.cases.map((c) => c.caseCommitment).sort(),
+    'the two groups are a partition of `cases`, not a different set',
+  );
+});
+
+test('13. reportsAfterEscalation counts only what arrived after the bar', () => {
+  const e = setup();
+  e.file(SOFIA, CASE_A);
+  e.file(NEIGHBOUR_1, CASE_A);
+  e.file(NEIGHBOUR_2, CASE_A);
+
+  // At exactly the threshold nobody has reported "after" anything. A view that
+  // said 1 here would tell the official they were already late on day one.
+  assert.equal(publicCaseOf(e.publicView(), CASE_A).reportsAfterEscalation, 0n);
+
+  e.file(STRANGER, CASE_A);
+  assert.equal(
+    publicCaseOf(e.publicView(), CASE_A).reportsAfterEscalation,
+    1n,
+    'one person reported a case that was already the body’s to answer',
+  );
+
+  for (const c of e.publicView().approaching) {
+    assert.equal(c.reportsAfterEscalation, 0n, 'nothing is late before it escalates');
+  }
 });

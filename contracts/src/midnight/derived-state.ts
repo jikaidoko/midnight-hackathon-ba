@@ -330,6 +330,20 @@ export interface PublicCaseView {
   /** Further reports needed to cross. Zero once under review. */
   readonly reportsToReview: bigint;
   /**
+   * Reports that arrived AFTER the case had already crossed. Zero before it.
+   *
+   * This is the closest the chain gets to "how long has this been sitting
+   * here". The ledger holds no timestamps, so an oversight screen has no way to
+   * say "under review for four days" without inventing it - and an invented
+   * number on an accountability screen is worse than a missing one. Corroborations
+   * that landed after the duty to answer began is a real quantity, and it says
+   * the same thing: people kept reporting while nothing happened.
+   *
+   * Read together with `answered` below, the pair is the whole accountability
+   * claim: how loudly the case was reported, and whether anyone replied.
+   */
+  readonly reportsAfterEscalation: bigint;
+  /**
    * The control body has recorded an answer to this case.
    *
    * False on a case that never escalated too, where it means nothing: nobody
@@ -345,8 +359,27 @@ export interface PublicCaseView {
 }
 
 export interface PublicLedgerView {
-  /** Every admitted case, in registry order. */
+  /**
+   * Every admitted case, in the order `admittedIndex` yields them.
+   *
+   * That is NOT insertion order, and the distinction is worth the sentence:
+   * admitting A, B, C then LATE iterates as B, C, LATE, A. Anything that needs a
+   * meaningful sequence has to impose one — which is what the two groups below
+   * are for.
+   */
   readonly cases: readonly PublicCaseView[];
+  /**
+   * Escalated, and therefore the control body's to answer. Most corroborated
+   * first.
+   *
+   * A partition of `cases` rather than a replacement for it. Registry order is
+   * the ledger's own and stays available; these two are for the screen that
+   * works the backlog as a queue, where the case eleven people reported must
+   * not sit below whichever commitment the registry happened to yield first.
+   */
+  readonly underReview: readonly PublicCaseView[];
+  /** Admitted but not yet escalated. Most corroborated first. */
+  readonly approaching: readonly PublicCaseView[];
   /** Cases the authority has admitted, from the contract's own counter. */
   readonly admittedCount: bigint;
   /** How many of them are flagged. */
@@ -409,6 +442,11 @@ export function derivePublicView(
       // subtraction for a harder reason - it would underflow on Uint - and the
       // clamp keeps this readable as "none left to go" past the bar.
       reportsToReview: reports >= threshold ? 0n : threshold - reports,
+      // Gated on the contract's flag, not on the arithmetic alone. A case can
+      // in principle be flagged at a count this subtraction does not predict,
+      // and a negative "reports after escalation" would be rendered verbatim by
+      // a screen that has no reason to distrust it.
+      reportsAfterEscalation: underReview && reports > threshold ? reports - threshold : 0n,
       answered: response !== undefined,
       // Spread rather than assigned, so an unanswered case has no `grounds` key
       // at all. `grounds: undefined` and `grounds: ''` both render as blank, and
@@ -424,8 +462,16 @@ export function derivePublicView(
     });
   }
 
+  const byReports = (a: PublicCaseView, b: PublicCaseView): number =>
+    a.reports === b.reports ? 0 : a.reports > b.reports ? -1 : 1;
+
   return {
     cases,
+    // `sort` mutates, so it is only ever applied to the fresh array `filter`
+    // returns. Sorting `cases` directly would silently redefine the field above
+    // from "registry order" to whatever the last partition needed.
+    underReview: cases.filter((c) => c.underReview).sort(byReports),
+    approaching: cases.filter((c) => !c.underReview).sort(byReports),
     admittedCount: state.admittedCount,
     underReviewCount,
     // Escalated and unanswered. Filtered from `cases` rather than collected in
