@@ -21,8 +21,9 @@
 //   DisclosureService         -> NOTHING. See below.
 
 import type { CaseView, ReporterView } from '@amparo/contracts/derived-state'
+import type { PublicCaseView, PublicLedgerView } from '@amparo/contracts/derived-state'
 
-export type { CaseView, ReporterView }
+export type { CaseView, ReporterView, PublicCaseView, PublicLedgerView }
 
 /**
  * The live view every screen reads from.
@@ -126,3 +127,83 @@ export interface DisclosureReceipt {
  */
 export const DEMO_ONLY_DISCLOSURE =
   'Demo: selective disclosure is not proven on chain in this build.'
+
+/* ============================================================
+   OVERSIGHT — the control body's side
+   ============================================================
+
+   The asymmetry this closes: escalation is public and permanent, so a reporter
+   is on record the moment they file. The body's answer used to be a button in a
+   private dashboard, which meant the only party the system held to account was
+   the one with the least power. Both sides are now on the same ledger.
+
+   The reason the feed below takes no secret is the whole property. A backlog
+   readable only by the body would make "we were never told" unfalsifiable.
+   Anyone can derive it, so nobody can claim that. */
+
+/**
+ * The live backlog, from public state alone.
+ *
+ * Deliberately a separate feed from `ReporterFeed` rather than a field on it:
+ * they are read by different people, and the reporter's view needs a secret
+ * this one must never acquire. Sharing a type would make the day someone adds a
+ * private field to the shared shape completely silent.
+ */
+export interface OversightFeed {
+  view$(): AsyncIterable<PublicLedgerView>
+  current(): PublicLedgerView | null
+}
+
+/** What the body decided. Matches the circuit's `ResponseKind` ordering. */
+export type ResponseKind = 'investigation' | 'referral' | 'dismissal'
+
+export interface CaseResponseView {
+  readonly kind: ResponseKind
+  /** Public reasoning, permanent and unrewritable. */
+  readonly grounds: string
+  readonly txId: string
+}
+
+/**
+ * Grounds are a fixed-width field on chain, and this is the pre-flight for it.
+ *
+ * BYTES, not characters: Spanish with accents runs around 230 in this budget,
+ * so a character counter would let someone write past the limit and only find
+ * out at submission. Counted here so the form can say so while they type.
+ *
+ * The on-chain encoder is the authority and it REFUSES rather than truncates —
+ * cutting UTF-8 at a byte offset splits whatever character straddles it, and
+ * this entry can never be rewritten, so refusing is the last chance anyone gets.
+ */
+export const GROUNDS_MAX_BYTES = 256
+
+export function groundsByteLength(text: string): number {
+  return new TextEncoder().encode(text.trim()).length
+}
+
+export interface ResponseService {
+  /**
+   * Whether this build can write a response at all.
+   *
+   * Rendered, not swallowed. A form that submits into a service which cannot
+   * write is the same lie as a nav entry that goes nowhere, and it costs
+   * whoever is testing the time to discover it by typing a full justification.
+   */
+  readonly available: boolean
+  /** Why not, in words a screen can show. Null when `available`. */
+  readonly unavailableReason: string | null
+
+  /**
+   * Responses on record, keyed by case commitment.
+   *
+   * ABSENCE is the observable, so this is a map with missing keys rather than
+   * entries with empty fields: blank and absent render identically and mean the
+   * opposite things. An escalated case that is not in here is public evidence
+   * that the body was told and said nothing.
+   */
+  responses(): ReadonlyMap<string, CaseResponseView>
+  /** Notifies on any change to the map above. Returns the unsubscribe. */
+  subscribe(onChange: () => void): () => void
+
+  respond(caseCommitment: string, kind: ResponseKind, grounds: string): Promise<TxResult>
+}

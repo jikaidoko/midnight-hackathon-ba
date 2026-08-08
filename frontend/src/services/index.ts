@@ -13,23 +13,29 @@ import { loadConfig, useChain } from '../midnight/config'
 import { buildProviders } from '../midnight/providers'
 import {
   ChainCredentialService,
+  ChainOversightFeed,
   ChainReporterFeed,
   ChainReportingService,
+  UnavailableResponses,
 } from '../midnight/adapters'
 import type {
   CredentialService,
   DisclosureService,
   IdentityService,
+  OversightFeed,
   ReporterFeed,
   ReportingService,
+  ResponseService,
 } from './contracts'
 import {
   chain as mockChain,
   credentialService as mockCredential,
   disclosureService as mockDisclosure,
   identityService as mockIdentity,
+  oversightFeed as mockOversight,
   reporterFeed as mockFeed,
   reportingService as mockReporting,
+  responseService as mockResponses,
 } from './mock'
 
 export const CHAIN_MODE = useChain()
@@ -40,6 +46,8 @@ interface Services {
   credentialService: CredentialService
   disclosureService: DisclosureService
   identityService: IdentityService
+  oversightFeed: OversightFeed
+  responseService: ResponseService
   /**
    * Human-readable label for a case commitment.
    *
@@ -58,6 +66,12 @@ function chainServices(): Services {
     reporterFeed: new ChainReporterFeed(providers, config),
     reportingService: new ChainReportingService(providers, config),
     credentialService: new ChainCredentialService(providers, config),
+    // Public state, no secret, no wallet. Readable here for the same reason it
+    // is readable by anyone: that is the accountability claim.
+    oversightFeed: new ChainOversightFeed(providers, config),
+    // Reads work; writing needs a circuit this build does not carry. It reports
+    // that as a state the screens render rather than as a throw at submit time.
+    responseService: new UnavailableResponses(),
     // Neither of these has a circuit. They are the same demo stand-ins in both
     // modes, and both say so on screen.
     disclosureService: mockDisclosure,
@@ -71,6 +85,8 @@ function mockServices(): Services {
     reporterFeed: mockFeed,
     reportingService: mockReporting,
     credentialService: mockCredential,
+    oversightFeed: mockOversight,
+    responseService: mockResponses,
     disclosureService: mockDisclosure,
     identityService: mockIdentity,
     titleOf: (caseCommitment) => mockChain.titleOf(caseCommitment),
@@ -84,4 +100,6 @@ export const reportingService = services.reportingService
 export const credentialService = services.credentialService
 export const disclosureService = services.disclosureService
 export const identityService = services.identityService
+export const oversightFeed = services.oversightFeed
+export const responseService = services.responseService
 export const titleOf = services.titleOf
