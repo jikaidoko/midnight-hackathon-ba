@@ -54,7 +54,7 @@
   },
   "comment:dependencies": [
     "compact-runtime is pinned exactly to the runtime-version reported by",
-    "src/managed/case_admission/compiler/contract-info.json. The generated code imports",
+    "src/managed/amparo/compiler/contract-info.json. The generated code imports",
     "from this package, and Midnight releases move fast enough that a caret range here",
     "would eventually pair generated code with a runtime it was not compiled against.",
     "",

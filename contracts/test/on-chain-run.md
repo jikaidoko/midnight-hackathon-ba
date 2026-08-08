@@ -100,7 +100,9 @@ The suite's `README.md` lists what the simulator cannot reach. This run closes
 three of those and leaves the rest open:
 
 - **Closed** — proof generation and verification, transaction submission, and
-  finality, for all four circuits.
+  finality, for the three circuits in the table above. `respondToCase` has a
+  driver (`npm run respond-case`) and its own recorded proof, but not in this
+  run.
 - **Still open** — a public network. This ran against a local standalone chain
   with a pre-funded genesis wallet: no faucet, no fee pressure, no contention,
   and a chain nobody else is writing to. Timing and failure modes on a public

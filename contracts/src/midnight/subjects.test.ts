@@ -212,6 +212,16 @@ test('9. positionals: a flag VALUE is never mistaken for a positional', () => {
   );
   assert.deepEqual(positionals(['--context', 'court', '--subject', 'sofia', '2']), ['2']);
 
+  // `--detail` is the one whose leak was permanent. `respond-case` reads
+  // positionals()[2] as an answer's GROUNDS, and that ledger entry is written
+  // once and never rewritten - so a shifted slot put the wrong text on chain
+  // forever, with a successful proof and no error.
+  assert.deepEqual(
+    positionals(['<hex>', 'dismissal', '--detail', 'Full reasoning.', 'Outside our remit.']),
+    ['<hex>', 'dismissal', 'Outside our remit.'],
+    'the detail value never becomes the grounds',
+  );
+
   // A valueless flag is dropped without eating what follows it.
   assert.deepEqual(positionals(['--force', '2']), ['2']);
   assert.deepEqual(positionals([]), []);

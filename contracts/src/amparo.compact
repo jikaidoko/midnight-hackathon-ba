@@ -198,6 +198,20 @@ export pure circuit filingNullifierOf(
 // Ties a threshold proof to the (reporter, verifier context) pair. A separate
 // domain prefix keeps it from ever colliding with a filing nullifier.
 //
+// SCOPE, stated precisely, because the loose version of this claim is wrong.
+// What the chain gets is H(domain, secret, context) — `context` itself is never
+// disclosed, and this helper is deliberately not exported. So a verifier knows
+// their own `context` but not `secret`, and cannot recompute the nullifier to
+// confirm a presentation was scoped to them.
+//
+// What this enforces: the SAME (reporter, context) pair cannot be presented
+// twice. What it does not enforce: that the context a prover used is the one the
+// verifier asked for. A prover willing to substitute a random context gets a
+// fresh nullifier and a second acceptance, and nothing on chain distinguishes it.
+// Closing that needs the verifier's identity bound into a value the circuit
+// discloses, so the verifier can check their own name is in it. It is the next
+// thing this circuit needs and it is not done.
+//
 // Both derivations take the secret as a PARAMETER and both are `pure`, which is
 // what makes it impossible for either to call `subjectSecret()` on its own. A
 // helper that hides a witness read makes the NUMBER of reads invisible at the
@@ -294,7 +308,7 @@ export circuit registerFiling(caseCommitment: Bytes<32>): [] {
 // particular decision, it is to make every decision — including doing nothing
 // about it — cost the same public, permanent record.
 //
-// Three guards, and the ORDER is load-bearing:
+// Four guards, and the ORDER is load-bearing:
 //   1. authority, so an impostor never reaches the state at all;
 //   2. under review, so the body cannot pre-empt a case before the threshold
 //      and leave a record that reads like a timely response to an escalation

@@ -66,8 +66,13 @@ const ctx = await buildWallet(config);
 await waitForSynced(ctx);
 const providers = await buildProviders(ctx, config, AMPARO);
 
-// One pre-flight, and only because a proof costs real time: the circuit asserts
-// the same thing, but it would do so after the proof was built.
+// One pre-flight, kept for the error message rather than for the time.
+//
+// It saves no proving: `createUnprovenCallTx` runs the circuit locally and its
+// asserts fire BEFORE anything is sent to the proof server, so the circuit's own
+// rejection is already fast. What it does not do is say which case, or what to do
+// about it - and "failed assert: Case is not in the admitted registry" is not a
+// sentence anybody should have to read on stage.
 const rawState = await providers.publicDataProvider.queryContractState(
   deployment.contractAddress,
 );

@@ -24,17 +24,27 @@ npm run preview
 - `/sealing` — deterministic sealing transition
 - `/sealed` — success
 - `/reports` — reports home
-- `/reports/demo-001` — report detail
-- `/reports/demo-001/share` — selective disclosure
-- `/reports/demo-001/access` — authorized access confirmation
+- `/reports/:caseCommitment` — report detail. The id is a 64-hex case
+  commitment, never a slug: an unknown one renders `Caso no encontrado.`
+- `/reports/:caseCommitment/share` — selective disclosure (demo only, no circuit)
+- `/reports/:caseCommitment/access` — authorized access confirmation
+- `/credential` — threshold credential (at least three filings)
+- `/control` — oversight portal inbox. Deliberately NOT linked from the reporter
+  app, so it is reachable by URL only. This is the only document that says so.
+- `/control/:caseCommitment` — case detail and escalation timeline
+- `/control/:caseCommitment/respond` — record the control body's answer
 
 ## Architecture
 
 The UI depends on service contracts in `src/services/contracts.ts`.
 
-Current demo uses `src/services/mock.ts`.
+Which implementation runs is decided once, in `src/services/index.ts`, from
+`VITE_MN_MODE`. `chain` uses the adapters in `src/midnight/` - real providers,
+real proofs, live contract state; anything else uses `src/services/mock.ts`.
 
-Later, implement Midnight adapters under `src/midnight/` and instantiate them behind the same interfaces. This keeps React pages independent from Compact / proof / ledger implementation details.
+That boundary is why the pages never learned which one they are talking to.
+Selective disclosure and the voice match have no circuit and are demo stand-ins
+in both modes, and both say so on screen. See `src/midnight/README.md`.
 
 ## Midnight boundary
 
