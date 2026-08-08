@@ -65,6 +65,14 @@ export default defineConfig({
     // packages excluded, which is what the plugins above need.
     include: ['object-inspect'],
   },
+  // `process` is a Node global, and Vite externalises it for the browser like
+  // every other builtin. Some dependencies GUARD it (`typeof process === 'object'`)
+  // and survive; others read `process.env` directly and throw at module load with
+  // "process is not defined", from inside an esbuild CommonJS wrapper whose stack
+  // names only the wrapper. Replacing the expression textually keeps the guarded
+  // reads working - a real `process` object would make those guards pass and then
+  // fail on the member they expected.
+  define: { 'process.env': '{}' },
   build: { target: 'esnext' },
   server: { host: true, port: 5173 },
 })

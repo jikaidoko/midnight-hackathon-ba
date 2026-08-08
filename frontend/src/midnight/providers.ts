@@ -33,7 +33,11 @@ export type AmparoCircuitId = 'registerFiling' | 'proveRepeatFilings'
  * 404 during proving — several seconds after the user pressed the button — so
  * `assertZkAssets` checks for them up front.
  */
-export const ZK_BASE = '/zk/amparo'
+// Absolute, not root-relative. `FetchZkConfigProvider` builds its fetch targets
+// with `new URL(...)`, which REQUIRES an absolute URL and throws "Invalid URL"
+// on a bare path - at construction, before any key is fetched, so the page dies
+// on startup in chain mode while mock mode never reaches it.
+export const ZK_BASE = new URL('/zk/amparo', window.location.origin).toString()
 
 /**
  * Store names. NOT absolute paths.
