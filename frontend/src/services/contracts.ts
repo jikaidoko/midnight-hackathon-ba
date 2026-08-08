@@ -20,9 +20,15 @@
 //   CredentialService.present -> proveRepeatFilings(cases, paths, root, context)
 //   DisclosureService         -> NOTHING. See below.
 
-import type { CaseView, ReporterView } from '@amparo/contracts/derived-state'
+import type {
+  CaseView,
+  PublicCaseView,
+  PublicLedgerView,
+  ReporterView,
+} from '@amparo/contracts/derived-state'
+import { GROUNDS_BYTES, ResponseKind } from '@amparo/contracts/ledger'
 
-export type { CaseView, ReporterView }
+export type { CaseView, ReporterView, PublicCaseView, PublicLedgerView }
 
 /**
  * The live view every screen reads from.
@@ -126,3 +132,78 @@ export interface DisclosureReceipt {
  */
 export const DEMO_ONLY_DISCLOSURE =
   'Demo: selective disclosure is not proven on chain in this build.'
+
+/* ============================================================
+   OVERSIGHT — the control body's side
+   ============================================================
+
+   The asymmetry this closes: escalation is public and permanent, so a reporter
+   is on record the moment they file. The body's answer used to be a button in a
+   private dashboard, which meant the only party the system held to account was
+   the one with the least power. Both sides are now on the same ledger.
+
+   The reason the feed below takes no secret is the whole property. A backlog
+   readable only by the body would make "we were never told" unfalsifiable.
+   Anyone can derive it, so nobody can claim that. */
+
+/**
+ * The live backlog, from public state alone.
+ *
+ * Deliberately a separate feed from `ReporterFeed` rather than a field on it:
+ * they are read by different people, and the reporter's view needs a secret
+ * this one must never acquire. Sharing a type would make the day someone adds a
+ * private field to the shared shape completely silent.
+ */
+export interface OversightFeed {
+  view$(): AsyncIterable<PublicLedgerView>
+  current(): PublicLedgerView | null
+}
+
+/**
+ * What the body decided. The contract's own enum, not a copy.
+ *
+ * Re-exported rather than restated as a string union: a union would have to be
+ * mapped to the enum at the call site, and a mapping is a second statement of
+ * the same three values that nothing compares.
+ */
+export { ResponseKind }
+
+/**
+ * The grounds budget, from the contract layer rather than repeated here.
+ *
+ * BYTES, not characters — Spanish with accents runs out around 230 of these, so
+ * a character counter would let someone write past the limit and only find out
+ * at submission with the whole justification typed.
+ *
+ * `encodeGrounds` is the authority and it REFUSES rather than truncates: cutting
+ * UTF-8 at a byte offset splits whatever character straddles it, and the entry
+ * can never be rewritten, so refusing is the last chance anyone gets. This
+ * counter exists so the form can say so WHILE they type; it does not decide.
+ */
+export { GROUNDS_BYTES }
+
+export function groundsByteLength(text: string): number {
+  return new TextEncoder().encode(text.trim()).length
+}
+
+/**
+ * Recording the body's answer. WRITES ONLY.
+ *
+ * There is deliberately no read side here. Responses are public ledger state,
+ * so they arrive through `OversightFeed` on `PublicCaseView.answered` and its
+ * companions, and a second source for the same fact is a second source that can
+ * disagree — which is how a screen ends up showing "sin respuesta registrada"
+ * over a case that was answered on chain an hour ago.
+ *
+ * Absence is the observable, and the view preserves it properly: an unanswered
+ * case has no `grounds` key at all rather than an empty one. Blank and absent
+ * render identically and mean opposite things.
+ */
+export interface ResponseService {
+  respond(
+    caseCommitment: string,
+    kind: ResponseKind,
+    grounds: string,
+    detail?: string,
+  ): Promise<TxResult>
+}

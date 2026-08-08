@@ -21,6 +21,35 @@ import { fileURLToPath, URL } from 'node:url'
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
   resolve: {
+    // ONE copy of each wasm package in the browser bundle, whichever tree the
+    // importer came from. Without this the page loads, queries the indexer
+    // successfully, and then dies decoding the answer:
+    //
+    //   Error: expected instance of ChargedState
+    //     at _assertClass (contracts/node_modules/@midnight-ntwrk/onchain-runtime-v3/...)
+    //
+    // The mechanism is the one `overrides` guards against inside a single tree,
+    // arriving by a route `overrides` cannot reach. `@amparo/generated` aliases
+    // to `../contracts/src`, so `ledger()` and the generated contract resolve
+    // their runtime from `contracts/node_modules`, while the providers resolve
+    // theirs from `frontend/node_modules`. Two copies, each owning its own wasm
+    // instance and therefore its own classes, so a state object built by one
+    // fails the other's `_assertClass`.
+    //
+    // `npm run check-wasm` cannot see this and reported green throughout: it
+    // compares VERSIONS per tree, and both trees hold the same version.
+    // Identical versions are still two instances, so that guard passing is not
+    // evidence about this failure - `check-wasm` now also counts resolved paths,
+    // which is the part that can see it.
+    //
+    // Node is unaffected, which is what made the failure browser-only:
+    // `ledger-view.ts` runs entirely inside `contracts/`, so the provider and
+    // `ledger()` share one resolution and one instance.
+    dedupe: [
+      '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/onchain-runtime-v3',
+      '@midnight-ntwrk/compact-runtime',
+    ],
     alias: {
       '@amparo/contracts': fileURLToPath(new URL('../contracts/src/midnight', import.meta.url)),
       // Compiler output and the witness implementation. Separate from the alias
