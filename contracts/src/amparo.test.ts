@@ -74,6 +74,8 @@ import {
   type AmparoPrivateState,
 } from './amparo-witnesses.js';
 import { createMerkleMirror, toHex, type LeafPath } from './merkle-mirror.js';
+import { encodeGrounds, decodeGrounds, GROUNDS_BYTES } from './midnight/ledger.js';
+import { derivePublicView } from './midnight/derived-state.js';
 
 const COIN_PK = '00'.repeat(32);
 const b32 = (seed: number): Uint8Array => new Uint8Array(32).fill(seed);
@@ -149,15 +151,22 @@ function setup(
     return out.result;
   };
 
+  // `grounds` takes raw bytes as well as a string so that a test can reach the
+  // circuit's guard directly. Going through `encodeGrounds` would never get
+  // there: it refuses the blank first, which proves the TypeScript guard and
+  // says nothing about the one written into the proof.
   const respond = (
     kase: Uint8Array,
     kind: ResponseKind = ResponseKind.investigation,
-    reason = 'Grounds stated in public.',
-    secret: Uint8Array = AUTHORITY,
+    grounds: string | Uint8Array = 'Grounds stated in public.',
+    opts: { detail?: string; secret?: Uint8Array } = {},
   ) => {
-    const ctx = createCircuitContext(addr, COIN_PK, state, createAuthorityState(secret));
-    state = contract.circuits.respondToCase(ctx, kase, kind, reason).context
-      .currentQueryContext.state as LedgerState;
+    const ctx = createCircuitContext(
+      addr, COIN_PK, state, createAuthorityState(opts.secret ?? AUTHORITY),
+    );
+    const encoded = typeof grounds === 'string' ? encodeGrounds(grounds) : grounds;
+    state = contract.circuits.respondToCase(ctx, kase, kind, encoded, opts.detail ?? '')
+      .context.currentQueryContext.state as LedgerState;
   };
 
   for (const kase of admitted) admit(kase);
@@ -576,11 +585,22 @@ test('23. happy path: an escalated case can be answered, on the record', () => {
   escalate(e, CASE_A);
 
   assert.equal(e.l().caseResponses.member(CASE_A), false, 'no answer yet');
-  e.respond(CASE_A, ResponseKind.investigation, 'Opened case file 41/2026.');
+  e.respond(CASE_A, ResponseKind.investigation, 'Opened case file 41/2026.', {
+    detail: 'Three independent reports describe the same discharge point.',
+  });
 
   const recorded = e.l().caseResponses.lookup(CASE_A);
   assert.equal(recorded.kind, ResponseKind.investigation);
-  assert.equal(recorded.reason, 'Opened case file 41/2026.', 'the grounds are on chain verbatim');
+  assert.equal(
+    decodeGrounds(recorded.grounds),
+    'Opened case file 41/2026.',
+    'the grounds are on chain verbatim',
+  );
+  assert.equal(
+    recorded.detail,
+    'Three independent reports describe the same discharge point.',
+    'and so is the unbounded half',
+  );
 });
 
 test('24. ADVERSARIAL: a case below the threshold cannot be answered', () => {
@@ -610,7 +630,7 @@ test('25. ADVERSARIAL: an impostor cannot answer', () => {
   escalate(e, CASE_A);
 
   assert.throws(
-    () => e.respond(CASE_A, ResponseKind.dismissal, 'Signed, nobody.', IMPOSTOR),
+    () => e.respond(CASE_A, ResponseKind.dismissal, 'Signed, nobody.', { secret: IMPOSTOR }),
     /Unrecognized authority/,
   );
   assert.equal(e.l().caseResponses.isEmpty(), true, 'nothing was written');
@@ -628,7 +648,7 @@ test('26. an answer is written once and never rewritten', () => {
 
   const recorded = e.l().caseResponses.lookup(CASE_A);
   assert.equal(recorded.kind, ResponseKind.dismissal, 'the first answer stands');
-  assert.equal(recorded.reason, 'Insufficient grounds.');
+  assert.equal(decodeGrounds(recorded.grounds), 'Insufficient grounds.');
 });
 
 test('27. THE OBSERVABLE: silence is publicly legible', () => {
@@ -660,9 +680,21 @@ test('28. dismissal costs the same public record as any other answer', () => {
   e.respond(CASE_B, ResponseKind.dismissal, 'Grounds: outside our jurisdiction.');
 
   const l = e.l();
+  const opened = l.caseResponses.lookup(CASE_A);
+  const dropped = l.caseResponses.lookup(CASE_B);
+
   assert.equal(l.caseResponses.size(), 2n);
-  assert.equal(l.caseResponses.lookup(CASE_B).kind, ResponseKind.dismissal);
-  assert.notEqual(l.caseResponses.lookup(CASE_B).reason, '', 'a dismissal states grounds too');
+  assert.equal(dropped.kind, ResponseKind.dismissal);
+
+  // Parity is the claim, so it is asserted as parity: the two records are the
+  // same width and both carry their grounds back verbatim. The earlier version
+  // of this test asserted that the dismissal's text was not empty - against a
+  // literal this same test had just supplied, which no change to the contract
+  // could ever have falsified. That the blank is impossible is a fact about the
+  // circuit, and it is test 31's to prove.
+  assert.equal(opened.grounds.length, GROUNDS_BYTES);
+  assert.equal(dropped.grounds.length, GROUNDS_BYTES, 'same width on the ledger');
+  assert.equal(decodeGrounds(dropped.grounds), 'Grounds: outside our jurisdiction.');
 });
 
 test('29. a reporter cannot answer', () => {
@@ -671,7 +703,9 @@ test('29. a reporter cannot answer', () => {
 
   const ctx = createCircuitContext(e.addr, COIN_PK, e.raw(), createSubjectState(SOFIA));
   assert.throws(
-    () => e.contract.circuits.respondToCase(ctx, CASE_A, ResponseKind.dismissal, 'Not mine to make.'),
+    () => e.contract.circuits.respondToCase(
+      ctx, CASE_A, ResponseKind.dismissal, encodeGrounds('Not mine to make.'), '',
+    ),
     /needs the authority's secret/,
   );
 });
@@ -695,5 +729,122 @@ test('30. KNOWN LIMITATION: one answer per case, so a later change of mind has n
     e.l().caseResponses.lookup(CASE_A).kind,
     ResponseKind.investigation,
     'the chain still says "investigating" forever',
+  );
+});
+
+test('31. ADVERSARIAL: an answer with no grounds is not an answer', () => {
+  // The guard the whole split exists for. Every other check here is about
+  // permission - who may write, and when. This one is about content, and
+  // without it all of them are satisfiable by a blank: the body writes an
+  // entry, the case stops reading as unanswered in test 27's backlog, and the
+  // public record states nothing. Silence with a receipt.
+  //
+  // The bytes are built here rather than through `encodeGrounds`, on purpose.
+  // That helper refuses the blank first, so routing this through it would prove
+  // the TypeScript guard and leave the one compiled into the proof untested -
+  // which is exactly the shape of an assertion that cannot fail.
+  const e = setup();
+  escalate(e, CASE_A);
+
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.dismissal, new Uint8Array(GROUNDS_BYTES)),
+    /must state its grounds/,
+  );
+  assert.equal(e.l().caseResponses.isEmpty(), true, 'nothing was written');
+
+  // A detail field cannot stand in for it. `detail` is `Opaque<"string">`, which
+  // has no literal in the circuit's language and so no value it can be compared
+  // against: it is unconstrainable by construction, and that is the reason the
+  // mandatory half had to be the fixed-width one.
+  assert.throws(
+    () => e.respond(CASE_A, ResponseKind.dismissal, new Uint8Array(GROUNDS_BYTES), {
+      detail: 'The explanation lives here instead.',
+    }),
+    /must state its grounds/,
+  );
+
+  // And with grounds present the same answer goes through, so the guard is
+  // rejecting the blank and not the call.
+  e.respond(CASE_A, ResponseKind.dismissal, 'Outside our remit.');
+  assert.equal(e.l().caseResponses.member(CASE_A), true);
+});
+
+test('32. grounds are measured in BYTES, and overflow is refused rather than cut', () => {
+  // A budget in characters would be wrong in the language this is written for.
+  // Every accented letter costs two bytes, so the same 200 characters fit or do
+  // not depending on the prose.
+  const accented = 'ó'.repeat(GROUNDS_BYTES / 2);
+  assert.equal(accented.length, 128, 'well under 256 characters');
+  assert.equal(encodeGrounds(accented).length, GROUNDS_BYTES, 'and exactly at the byte budget');
+  assert.throws(() => encodeGrounds(accented + 'ó'), /must fit in 256 bytes/);
+
+  // Truncating is the tempting alternative and it is the dangerous one: cutting
+  // UTF-8 at a byte offset splits whatever character straddles it, and the entry
+  // is permanent and unrewritable. Refusing is the last chance to not do that.
+  const roundTripped = decodeGrounds(encodeGrounds(accented));
+  assert.equal(roundTripped, accented, 'no character was harmed on the way through');
+
+  // Whitespace-only would satisfy the circuit - it is not the zero padding - so
+  // it is caught here, where the error can still say why.
+  assert.throws(() => encodeGrounds('   '), /must not be empty/);
+  assert.throws(() => encodeGrounds(''), /must not be empty/);
+
+  // The padding is padding, not content: it must not come back as 256 NUL
+  // characters that render as nothing and compare as something.
+  assert.equal(decodeGrounds(encodeGrounds('Short.')), 'Short.');
+  assert.equal(decodeGrounds(new Uint8Array(GROUNDS_BYTES)), '');
+});
+
+test('33. THE OBSERVABLE, as code a client can run: silence is derivable with no secret', () => {
+  // Test 27 proves the fact exists in the state. This proves something else:
+  // that a client can compute it. The state was written by the contract and
+  // read by a test, and a guarantee whose only reader is its own test suite is
+  // not one anybody can act on.
+  //
+  // The argument list is the assertion. `derivePublicView` takes the ledger and
+  // a threshold - no secret, no reporter identity - which is what makes the
+  // result evidence rather than a private dashboard.
+  const e = setup();
+  escalate(e, CASE_A);
+  escalate(e, CASE_B);
+  e.respond(CASE_B, ResponseKind.referral, 'Referred to the labour inspectorate.', {
+    detail: 'Jurisdiction lies with the inspectorate under section 12.',
+  });
+
+  const view = derivePublicView(e.l(), 3n);
+
+  assert.equal(view.underReviewCount, 2);
+  assert.equal(view.unanswered.length, 1, 'one case was told and not answered');
+  assert.equal(
+    view.unanswered[0]!.caseCommitment,
+    toHex(CASE_A),
+    'and it is the one nobody answered',
+  );
+
+  // The answered one carries its text back through the padding, both halves.
+  const answered = view.cases.find((c) => c.answered)!;
+  assert.equal(answered.caseCommitment, toHex(CASE_B));
+  assert.equal(answered.kind, ResponseKind.referral);
+  assert.equal(answered.grounds, 'Referred to the labour inspectorate.');
+  assert.equal(answered.detail, 'Jurisdiction lies with the inspectorate under section 12.');
+
+  // And the unanswered one has no grounds KEY, not an empty one. Blank and
+  // absent render identically and mean opposite things: one is a body that
+  // said nothing, the other is a body that was never asked.
+  const silent = view.unanswered[0]!;
+  assert.equal('grounds' in silent, false, 'absence is absence, not an empty string');
+  assert.equal(silent.reports >= 3n, true, 'it did cross the threshold');
+
+  // A case admitted but never escalated is LISTED, but is not silence. This is
+  // the distinction the merged view has to keep and a backlog-only view could
+  // not: `unanswered` means the body owes an answer, and nobody is owed one on
+  // a case no reporter has raised.
+  const untouched = view.cases.find((c) => c.caseCommitment === toHex(CASE_C))!;
+  assert.equal(untouched.underReview, false, 'never reported');
+  assert.equal(untouched.answered, false, 'and so unanswered in the literal sense');
+  assert.equal(
+    view.unanswered.some((c) => c.caseCommitment === toHex(CASE_C)),
+    false,
+    'but nothing is owed on it, so it is not in the backlog',
   );
 });

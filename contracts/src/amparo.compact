@@ -108,11 +108,24 @@ export ledger casesUnderReview: Set<Bytes<32>>;
 // silence this state exists to remove, wearing a different mask.
 export enum ResponseKind { investigation, referral, dismissal }
 
-// One answer, as recorded. `reason` is public on purpose: a dismissal with no
+// One answer, as recorded. The text is public on purpose: a dismissal with no
 // stated grounds is precisely what this makes impossible.
+//
+// It is split in two because only one half can be enforced. `grounds` is a fixed
+// `Bytes<256>`, so the circuit can compare it against the empty padding and
+// refuse an answer that states nothing. `detail` is `Opaque<"string">`, which
+// has no literal in this language and therefore no value the circuit can check
+// it against — an unbounded field is unconstrainable by construction.
+//
+// So the mandatory part is the one that fits in a fixed width, and the width is
+// the budget for it: 256 BYTES, which in Spanish with accents is closer to 230
+// characters than to 256. `detail` then carries the full reasoning with no
+// ceiling. A body that wants to explain itself at length still can; what it
+// cannot do is say nothing and have the chain accept it.
 export struct CaseResponse {
   kind: ResponseKind,
-  reason: Opaque<"string">
+  grounds: Bytes<256>,
+  detail: Opaque<"string">
 }
 
 // The answer to each escalated case.
@@ -286,7 +299,8 @@ export circuit registerFiling(caseCommitment: Bytes<32>): [] {
 //   2. under review, so the body cannot pre-empt a case before the threshold
 //      and leave a record that reads like a timely response to an escalation
 //      the public never saw;
-//   3. not already answered, so the record is written once and never rewritten.
+//   3. not already answered, so the record is written once and never rewritten;
+//   4. grounds stated, so the answer cannot be blank.
 //
 // Answering is deliberately NOT possible below the threshold. A body that wants
 // to act sooner still can — in the world, where oversight actually happens. What
@@ -294,7 +308,8 @@ export circuit registerFiling(caseCommitment: Bytes<32>): [] {
 export circuit respondToCase(
   caseCommitment: Bytes<32>,
   kind: ResponseKind,
-  reason: Opaque<"string">
+  grounds: Bytes<256>,
+  detail: Opaque<"string">
 ): [] {
   assertAuthority();
 
@@ -305,13 +320,26 @@ export circuit respondToCase(
   assert(!caseResponses.member(caseKey),
     "Case already has a recorded response");
 
-  // Both fields are parameters heading for public state, so both need their own
-  // `disclose`. Neither is decorative: the compiler rejects the write without
+  // The fourth guard, and the only one about content rather than permission.
+  // Without it every other guard here is satisfiable by an empty answer: the
+  // body writes the entry, the map stops reading as silence, and the record
+  // says nothing. `pad(256, "")` is the all-zero value a caller sends when they
+  // fill in nothing, and a fixed-width type is what makes that value nameable
+  // in-circuit at all.
+  //
+  // This checks PRESENCE, not adequacy. Grounds that are present but hollow are
+  // a question for whoever reads them; the chain can only refuse the blank.
+  assert(disclose(grounds) != pad(256, ""),
+    "Response must state its grounds");
+
+  // Every field is a parameter heading for public state, so every one needs its
+  // own `disclose`. None is decorative: the compiler rejects the write without
   // them, which is the same rule that makes every parameter of an exported
   // circuit a witness value until it is explicitly let out.
   caseResponses.insert(caseKey, CaseResponse {
     kind: disclose(kind),
-    reason: disclose(reason)
+    grounds: disclose(grounds),
+    detail: disclose(detail)
   });
 }
 

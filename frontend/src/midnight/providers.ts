@@ -18,9 +18,18 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import type { AmparoConfig } from './config'
 
 /**
- * Circuits with keys on disk that a page can reach. `admitCase` has one too,
- * but it is the authority's alone — a reporter session never calls it, so it
- * is left off this type rather than fetched and unused.
+ * Circuits with keys on disk that a page in THIS app can reach.
+ *
+ * The contract has four. Two are the authority's alone — `admitCase` and
+ * `respondToCase` — and no reporter session calls either, so they are left off
+ * rather than fetched and unused. That is a scoping decision about this app,
+ * not a claim that two circuits exist.
+ *
+ * It is recorded here because the omission and the oversight look identical
+ * from the code: whoever adds the control body's screens has to add its
+ * circuits to this list, or `assertZkAssets` will pass while the very key that
+ * flow needs is unserved — and the failure lands seconds after the button,
+ * which is the exact failure this guard was written to move earlier.
  */
 export type AmparoCircuitId = 'registerFiling' | 'proveRepeatFilings'
 
@@ -112,9 +121,11 @@ function privateStatePassword(): string {
  * indistinguishable from an approving one.
  *
  * So it asks whether what came back is a key rather than whether something came
- * back: HTML is the fallback, never a prover. Both circuits are probed because
- * they are published as one directory but fetched independently, and a partial
- * copy would otherwise be caught only by whichever flow the demo ran second.
+ * back: HTML is the fallback, never a prover. Every circuit this app can reach
+ * is probed - see `AmparoCircuitId` for which two those are and why the
+ * authority's are not - because they are published as one directory but fetched
+ * independently, and a partial copy would otherwise be caught only by whichever
+ * flow the demo ran second.
  */
 export async function assertZkAssets(): Promise<void> {
   const circuits: AmparoCircuitId[] = ['registerFiling', 'proveRepeatFilings']
