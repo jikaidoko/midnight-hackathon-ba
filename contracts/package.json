@@ -77,8 +77,11 @@
     "moment a newer patch exists. The pinned versions satisfy every other declared range, so",
     "the override picks a winner rather than forcing an unsupported combination.",
     "",
-    "Verify after any dependency change: `npm ls @midnight-ntwrk/ledger-v8` and",
-    "`npm ls @midnight-ntwrk/onchain-runtime-v3` must each report a single version. Neither",
-    "typecheck nor the simulator tests can see this - they never build a transaction."
+    "Verify after any dependency change: `npm run check-wasm`, from frontend/. Run it there",
+    "rather than `npm ls` here, because a per-tree check cannot see the case that matters.",
+    "The browser bundle draws from BOTH trees - the generated contract resolves the runtime",
+    "from this one - so two trees each holding a single version can still hold two DIFFERENT",
+    "versions, and every per-tree `npm ls` reports success. Neither typecheck nor the",
+    "simulator tests can see any of it - they never build a transaction."
   ]
 }
