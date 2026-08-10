@@ -18,6 +18,8 @@ import { AlertTriangle, FileSignature, MoveUp, ShieldX, Scale } from 'lucide-rea
 import { ControlShell } from '../../components/ControlShell'
 import { useOversightCase } from '../../services/useOversight'
 import { responseService, titleOf } from '../../services'
+import { useAuthorityRequired, useAuthoritySource } from '../../services/useAuthority'
+import { AuthorityGate, BuildCredentialNotice } from './AuthorityGate'
 import { GROUNDS_BYTES, ResponseKind, groundsByteLength } from '../../services/contracts'
 
 // The contract's own enum, not a parallel set of strings. A string union here
@@ -33,6 +35,8 @@ export default function RespondPage() {
   const navigate = useNavigate()
   const { id } = useParams()
   const kase = useOversightCase(id)
+  const credentialNeeded = useAuthorityRequired()
+  const credentialSource = useAuthoritySource()
 
   const [kind, setKind] = useState<ResponseKind | null>(null)
   const [grounds, setGrounds] = useState('')
@@ -48,6 +52,12 @@ export default function RespondPage() {
       </ControlShell>
     )
   }
+
+  // The gate stands in front of the FORM, not in front of the case. Someone
+  // without the credential still sees which case this is and why it escalated —
+  // taking that away would make the queue private, which is the arrangement the
+  // public ledger exists to replace.
+  const unidentified = credentialNeeded && credentialSource === 'none'
 
   const used = groundsByteLength(grounds)
   const over = used > GROUNDS_BYTES
@@ -85,6 +95,9 @@ export default function RespondPage() {
         <p>{titleOf(kase.caseCommitment)}</p>
       </header>
 
+      {unidentified && <AuthorityGate />}
+
+      {!unidentified && (
       <div className="panel wide pad-xl respond-stack">
         <div className="control-banner alert">
           <AlertTriangle size={22} />
@@ -96,6 +109,8 @@ export default function RespondPage() {
             </p>
           </div>
         </div>
+
+        {credentialNeeded && credentialSource === 'build' && <BuildCredentialNotice />}
 
         {blocked && (
           <div className="control-banner alert">
@@ -168,6 +183,7 @@ export default function RespondPage() {
           </button>
         </div>
       </div>
+      )}
     </ControlShell>
   )
 }

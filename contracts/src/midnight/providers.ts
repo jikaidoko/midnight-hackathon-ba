@@ -37,6 +37,7 @@ import { resolve } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { loadConfig, PKG_ROOT, type MidnightConfig } from './config.js';
+import { makeWalletProvider, type WalletCtx, type FacadeState } from './wallet-provider.js';
 import { zkConfigProvider } from './zk.js';
 import { AMPARO, type AnyCircuitId, type ContractSpec } from './contracts.js';
 
@@ -47,27 +48,15 @@ import { AMPARO, type AnyCircuitId, type ContractSpec } from './contracts.js';
  */
 export const PRIVATE_STATE_STORE = 'midnight-level-db';
 
-type Keystore = ReturnType<typeof createKeystore>;
 type SubWallet = 'shielded' | 'unshielded' | 'dust';
 
-/** A built wallet plus the key material needed to balance and sign. */
-export interface WalletCtx {
-  wallet: WalletFacade;
-  shieldedSecretKeys: ledger.ZswapSecretKeys;
-  dustSecretKey: ledger.DustSecretKey;
-  keystore: Keystore;
-  /** Stops the periodic state save. Call it before exiting. */
-  stopPersist?: () => void;
-}
-
-/** Shape of the facade state the scripts read. */
-export interface FacadeState {
-  isSynced: boolean;
-  shielded: {
-    coinPublicKey: { toHexString(): string };
-    encryptionPublicKey: { toHexString(): string };
-  };
-}
+// Balancing, signing and submitting live in `wallet-provider.ts`, which imports
+// nothing from Node so a browser can use the same implementation. They are
+// re-exported here because every existing caller imports them from this module,
+// and because two enunciados of "how a transaction gets signed" is exactly the
+// kind of pair nothing ever compares.
+export { makeWalletProvider };
+export type { WalletCtx, FacadeState };
 
 // ---------------------------------------------------------------------------
 // Environment helpers
@@ -350,96 +339,6 @@ export async function waitForSynced(ctx: WalletCtx): Promise<FacadeState> {
 export async function closeWallet(ctx: WalletCtx): Promise<void> {
   ctx.stopPersist?.();
   await ctx.wallet.stop();
-}
-
-// ---------------------------------------------------------------------------
-// Transaction signing
-// ---------------------------------------------------------------------------
-
-/**
- * Signs the unshielded intents of a transaction in place.
- *
- * Intents are immutable once built, so each one is cloned through
- * deserialization, signed over its own segment's signature data, and written
- * back. Inputs that already carry a signature keep it: re-signing an input
- * signed by someone else would drop their signature.
- */
-function signTransactionIntents(
-  tx: { intents?: Map<number, unknown> },
-  sign: (payload: Uint8Array) => ledger.Signature,
-  proofMarker: 'proof' | 'pre-proof',
-): void {
-  if (!tx.intents || tx.intents.size === 0) return;
-
-  for (const segment of tx.intents.keys()) {
-    const intent = tx.intents.get(segment) as { serialize(): Uint8Array } | undefined;
-    if (!intent) continue;
-
-    const cloned = (ledger.Intent.deserialize as (...args: unknown[]) => never)(
-      'signature',
-      proofMarker,
-      'pre-binding',
-      intent.serialize(),
-    ) as unknown as {
-      signatureData(segment: number): Uint8Array;
-      fallibleUnshieldedOffer?: UnshieldedOffer;
-      guaranteedUnshieldedOffer?: UnshieldedOffer;
-    };
-
-    const signature = sign(cloned.signatureData(segment));
-    for (const key of ['fallibleUnshieldedOffer', 'guaranteedUnshieldedOffer'] as const) {
-      const offer = cloned[key];
-      if (!offer) continue;
-      const signatures = offer.inputs.map((_, i) => offer.signatures.at(i) ?? signature);
-      (cloned as Record<string, unknown>)[key] = offer.addSignatures(signatures);
-    }
-
-    tx.intents.set(segment, cloned);
-  }
-}
-
-interface UnshieldedOffer {
-  inputs: unknown[];
-  signatures: { at(index: number): ledger.Signature | undefined };
-  addSignatures(signatures: ledger.Signature[]): unknown;
-}
-
-/**
- * Adapter exposing the wallet as the balance/sign/submit provider the contract
- * layer expects.
- */
-export function makeWalletProvider(ctx: WalletCtx, state: FacadeState) {
-  const defaultTtl = () => new Date(Date.now() + 30 * 60 * 1000);
-
-  return {
-    getCoinPublicKey: () => state.shielded.coinPublicKey.toHexString(),
-    getEncryptionPublicKey: () => state.shielded.encryptionPublicKey.toHexString(),
-
-    async balanceTx(tx: unknown, ttl?: Date) {
-      const recipe = await ctx.wallet.balanceUnboundTransaction(
-        tx as never,
-        { shieldedSecretKeys: ctx.shieldedSecretKeys, dustSecretKey: ctx.dustSecretKey },
-        { ttl: ttl ?? defaultTtl() },
-      );
-
-      const sign = (payload: Uint8Array) => ctx.keystore.signData(payload);
-      const parts = recipe as unknown as {
-        baseTransaction: { intents?: Map<number, unknown> };
-        balancingTransaction?: { intents?: Map<number, unknown> };
-      };
-
-      // The base transaction is already proven; the balancing one is not yet.
-      // The marker has to match, or deserialization rejects the intent.
-      signTransactionIntents(parts.baseTransaction, sign, 'proof');
-      if (parts.balancingTransaction) {
-        signTransactionIntents(parts.balancingTransaction, sign, 'pre-proof');
-      }
-
-      return ctx.wallet.finalizeRecipe(recipe);
-    },
-
-    submitTx: (tx: unknown) => ctx.wallet.submitTransaction(tx as never) as Promise<string>,
-  };
 }
 
 // ---------------------------------------------------------------------------

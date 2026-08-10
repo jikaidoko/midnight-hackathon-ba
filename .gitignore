@@ -16,6 +16,11 @@ CLAUDE.md
 # Created automatically by an editor hook; does not ignore itself.
 .atl/
 
+# Deployment link (project and organisation ids). Machine-local: it names one
+# account's project, and a checkout that inherits it deploys somewhere nobody
+# on this repository chose.
+.vercel/
+
 # --- Local network and wallet state -----------------------------------------
 # Everything below is machine-local: it is either sensitive, or expensive to
 # rebuild but meaningless on another machine. None of it belongs in the repo.

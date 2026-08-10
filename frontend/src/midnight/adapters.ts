@@ -35,9 +35,15 @@ import type {
 } from '../services/contracts'
 import type { ResponseKind } from '@amparo/contracts/ledger'
 import type { AmparoConfig } from './config'
-import { PRIVATE_STATE_ID, type AmparoProviders } from './providers'
+import {
+  AUTHORITY_PRIVATE_STATE_ID,
+  PRIVATE_STATE_ID,
+  type AmparoProviders,
+} from './providers'
+import { withWallet } from './wallet'
+import { authorityOf } from './authority'
 import { filingsElsewhere, filingsFor, fromHex, recordFiling, subjectSecret } from './subject-store'
-import { createSubjectState } from '@amparo/generated/amparo-witnesses.js'
+import { createAuthorityState, createSubjectState } from '@amparo/generated/amparo-witnesses.js'
 
 export type { CaseView }
 
@@ -50,17 +56,17 @@ async function contextBytes(name: string): Promise<Uint8Array> {
 /**
  * Bridges an rxjs stream to the async iterable the screens consume.
  *
- * All THREE endings are handled, and that is the whole point of the function.
- * The loop parks on a promise only an observer callback resolves, so any ending
- * this does not wake leaves it parked forever - which a screen renders as a
- * spinner that never resolves, indistinguishable from a slow network.
+ * Termination is the part worth keeping in one place: a source that ends leaves
+ * the loop parked on a promise nobody will ever resolve, so the `finally` never
+ * runs, the subscription is never unsubscribed, and the screen shows a spinner
+ * indistinguishable from a slow network.
  *
- * `complete` is the ending easiest to leave out and the one the indexer actually
- * produces: its state stream ends by COMPLETING, not by erroring, about ten
- * seconds after a connection drops. `keepAlive` resubscribes past that, so it
- * should not reach here - but "should not" is how a missing branch stays
- * invisible, and a completion that does arrive now ends the iteration instead of
- * hanging it.
+ * BOTH endings are handled, and `complete` is not the theoretical one: the
+ * indexer subscription ends by COMPLETING, not by erroring, about ten seconds
+ * after a connection drops. `keepAlive` currently resubscribes on both, which
+ * hides the gap — and hides it in a way that makes the error branch unreachable
+ * through the same pipe. A `take(1)`, a bounded `retry({ count })`, or any
+ * caller that passes a stream without `keepAlive` reaches these.
  */
 async function* drain<T>(stream: Observable<T>): AsyncIterable<T> {
   const queue: T[] = []
@@ -189,7 +195,7 @@ export class ChainResponseService implements ResponseService {
       throw new Error('Este caso ya tiene respuesta registrada, y no se puede editar.')
     }
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'authority')
     const called = await (contract as unknown as {
       callTx: {
         respondToCase(
@@ -205,13 +211,117 @@ export class ChainResponseService implements ResponseService {
   }
 }
 
-async function deployedAmparo(providers: AmparoProviders, config: AmparoConfig) {
-  return findDeployedContract(providers as never, {
+/**
+ * Which credential a circuit will ask for.
+ *
+ * The contract is one contract but not one role: `registerFiling` and
+ * `proveRepeatFilings` ask for the reporter's secret, `respondToCase` asks for
+ * the control body's. Naming it at the call site is what keeps that visible —
+ * the alternative is a single default that is silently right for two of the
+ * three flows.
+ */
+type CallerRole = 'reporter' | 'authority'
+
+/**
+ * The contract handle, with a wallet attached and the caller's own credential.
+ *
+ * The wallet is built here and not at startup, so the cost of a sync is paid by
+ * the first write rather than by every reader. Reads never come through this
+ * function — which is the same separation the oversight view depends on, one
+ * layer down: deriving the backlog requires no key, and nothing here can quietly
+ * make it require one.
+ *
+ * The role decides the private state, and it used to be hard-coded to the
+ * reporter's. That made answering a case impossible from this build in a way no
+ * screen could reveal: the portal rendered, the button worked, and the witness
+ * would refuse a secret it was never given.
+ */
+async function deployedAmparo(
+  providers: AmparoProviders,
+  config: AmparoConfig,
+  role: CallerRole,
+) {
+  // The credential is read FIRST, before the wallet is built. Both can refuse,
+  // but only one of them is cheap: `authoritySecret` refuses deterministically
+  // and by name, while `withWallet` pays a full build and up to 90s of sync. In
+  // the other order a reporter's build sits through the whole sync and only then
+  // reads "this build has no authority secret" — the pre-flight discipline the
+  // rest of this file argues for, applied to this function.
+  const identity =
+    role === 'authority'
+      ? {
+          privateStateId: AUTHORITY_PRIVATE_STATE_ID,
+          initialPrivateState: createAuthorityState(authoritySecret(config)),
+        }
+      : {
+          privateStateId: PRIVATE_STATE_ID,
+          initialPrivateState: createSubjectState(subjectSecret()),
+        }
+
+  // `initialPrivateState` is consulted ONLY when the key is absent, so on its own
+  // it cannot express "this credential, now". That was harmless while the secret
+  // was compiled in and therefore never changed; once the portal can be handed a
+  // different one — the entire point of presenting it — the asymmetry becomes a
+  // silent substitution. A second official at the same browser would have their
+  // secret accepted by the form, ignored by the provider, and refused by the
+  // circuit tens of seconds later, naming a digest mismatch rather than the cause.
+  //
+  // Writing it makes the presented credential authoritative. `identity` still
+  // carries it so the two agree rather than one depending on the other.
+  if (role === 'authority') {
+    providers.privateStateProvider.setContractAddress(config.contractAddress)
+    await providers.privateStateProvider.set(
+      AUTHORITY_PRIVATE_STATE_ID,
+      identity.initialPrivateState,
+    )
+  }
+
+  const signing = await withWallet(providers, config)
+
+  return findDeployedContract(signing as never, {
     contractAddress: config.contractAddress,
     compiledContract: amparoContract() as never,
-    privateStateId: PRIVATE_STATE_ID,
-    initialPrivateState: createSubjectState(subjectSecret()),
+    ...identity,
   } as never)
+}
+
+/**
+ * Forgets the control body's stored credential.
+ *
+ * The held bytes are only half of leaving the portal: the witness reads from the
+ * private-state store, so a credential that stays there is one the next person at
+ * this browser can answer with. Scoped to the authority's key alone — the
+ * reporter's state lives under its own `privateStateId` and has nothing to do
+ * with whoever just signed out.
+ */
+export async function forgetAuthorityState(
+  providers: AmparoProviders,
+  config: AmparoConfig,
+): Promise<void> {
+  providers.privateStateProvider.setContractAddress(config.contractAddress)
+  await providers.privateStateProvider.remove(AUTHORITY_PRIVATE_STATE_ID)
+}
+
+/**
+ * The control body's credential, or a refusal that says which build this is.
+ *
+ * Absence is not a misconfiguration to be papered over: a build without it is a
+ * reporter's build, which is the common and correct case. What it must not do is
+ * hand the circuit a placeholder — zeroes would prove a false statement about a
+ * digest that cannot match, spending the proving time first and failing on an
+ * assert that names the contract rather than the build.
+ */
+function authoritySecret(config: AmparoConfig): Uint8Array {
+  const secret = authorityOf(config)
+  if (!secret) {
+    throw new Error(
+      'No hay credencial de autoridad presentada, así que no se puede registrar una ' +
+        'respuesta. Registrarla prueba conocimiento de la preimagen del compromiso de ' +
+        'autoridad publicado por el contrato. Leer el registro público no necesita ninguna ' +
+        'credencial, y eso es lo que esta pantalla sí puede hacer sin identificarse.',
+    )
+  }
+  return secret
 }
 
 export class ChainReportingService implements ReportingService {
@@ -235,7 +345,7 @@ export class ChainReportingService implements ReportingService {
       throw new Error('This case is not in the admitted registry')
     }
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'reporter')
     const called = await (contract as unknown as {
       callTx: { registerFiling(c: Uint8Array): Promise<{ public: { txId: string } }> }
     }).callTx.registerFiling(commitment)
@@ -291,7 +401,7 @@ export class ChainCredentialService implements CredentialService {
       return path
     })
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'reporter')
     const called = await (contract as unknown as {
       callTx: {
         proveRepeatFilings(
