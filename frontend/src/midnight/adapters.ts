@@ -55,23 +55,33 @@ async function contextBytes(name: string): Promise<Uint8Array> {
 /**
  * Bridges an rxjs stream to the async iterable the screens consume.
  *
- * The error branch is the part worth keeping in one place: without it a failed
- * subscription leaves the loop parked on a promise nobody will ever resolve, so
- * a dead indexer renders as a spinner that never resolves instead of an error
- * anybody can read.
+ * Termination is the part worth keeping in one place: a source that ends leaves
+ * the loop parked on a promise nobody will ever resolve, so the `finally` never
+ * runs, the subscription is never unsubscribed, and the screen shows a spinner
+ * indistinguishable from a slow network.
+ *
+ * BOTH endings are handled, and `complete` is not the theoretical one: the
+ * indexer subscription ends by COMPLETING, not by erroring, about ten seconds
+ * after a connection drops. `keepAlive` currently resubscribes on both, which
+ * hides the gap — and hides it in a way that makes the error branch unreachable
+ * through the same pipe. A `take(1)`, a bounded `retry({ count })`, or any
+ * caller that passes a stream without `keepAlive` reaches these.
  */
 async function* drain<T>(stream: Observable<T>): AsyncIterable<T> {
   const queue: T[] = []
   let wake: (() => void) | null = null
   let failure: unknown = null
+  let ended = false
   const subscription = stream.subscribe({
     next: (v) => { queue.push(v); wake?.() },
     error: (e) => { failure = e; wake?.() },
+    complete: () => { ended = true; wake?.() },
   })
   try {
     for (;;) {
       while (queue.length) yield queue.shift() as T
       if (failure) throw failure
+      if (ended) return
       await new Promise<void>((resolve) => { wake = resolve })
       wake = null
     }
@@ -230,7 +240,12 @@ async function deployedAmparo(
   config: AmparoConfig,
   role: CallerRole,
 ) {
-  const signing = await withWallet(providers, config)
+  // The credential is read FIRST, before the wallet is built. Both can refuse,
+  // but only one of them is cheap: `authoritySecret` refuses deterministically
+  // and by name, while `withWallet` pays a full build and up to 90s of sync. In
+  // the other order a reporter's build sits through the whole sync and only then
+  // reads "this build has no authority secret" — the pre-flight discipline the
+  // rest of this file argues for, applied to this function.
   const identity =
     role === 'authority'
       ? {
@@ -241,6 +256,8 @@ async function deployedAmparo(
           privateStateId: PRIVATE_STATE_ID,
           initialPrivateState: createSubjectState(subjectSecret()),
         }
+
+  const signing = await withWallet(providers, config)
 
   return findDeployedContract(signing as never, {
     contractAddress: config.contractAddress,
