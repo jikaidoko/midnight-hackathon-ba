@@ -1,0 +1,11 @@
+{
+  "//": "Here and NOT in public/. Vite copies public/ verbatim into dist/, so a vercel.json placed there is DEPLOYED AS AN ASSET, served at /vercel.json and never read as configuration. Vercel reads this file from the project's root directory — frontend/, which is where the build runs. The symptom of getting it wrong is silent: the rewrite below never applies, so /control — documented as URL-only and therefore always reached by deep link — 404s on a direct hit or a refresh, while every in-app navigation works.",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [{ "source": "/((?!zk/).*)", "destination": "/index.html" }],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "cache-control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ]
+}
