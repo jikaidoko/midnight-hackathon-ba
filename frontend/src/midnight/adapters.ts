@@ -41,6 +41,7 @@ import {
   type AmparoProviders,
 } from './providers'
 import { withWallet } from './wallet'
+import { authorityOf } from './authority'
 import { filingsElsewhere, filingsFor, fromHex, recordFiling, subjectSecret } from './subject-store'
 import { createAuthorityState, createSubjectState } from '@amparo/generated/amparo-witnesses.js'
 
@@ -257,6 +258,24 @@ async function deployedAmparo(
           initialPrivateState: createSubjectState(subjectSecret()),
         }
 
+  // `initialPrivateState` is consulted ONLY when the key is absent, so on its own
+  // it cannot express "this credential, now". That was harmless while the secret
+  // was compiled in and therefore never changed; once the portal can be handed a
+  // different one — the entire point of presenting it — the asymmetry becomes a
+  // silent substitution. A second official at the same browser would have their
+  // secret accepted by the form, ignored by the provider, and refused by the
+  // circuit tens of seconds later, naming a digest mismatch rather than the cause.
+  //
+  // Writing it makes the presented credential authoritative. `identity` still
+  // carries it so the two agree rather than one depending on the other.
+  if (role === 'authority') {
+    providers.privateStateProvider.setContractAddress(config.contractAddress)
+    await providers.privateStateProvider.set(
+      AUTHORITY_PRIVATE_STATE_ID,
+      identity.initialPrivateState,
+    )
+  }
+
   const signing = await withWallet(providers, config)
 
   return findDeployedContract(signing as never, {
@@ -264,6 +283,23 @@ async function deployedAmparo(
     compiledContract: amparoContract() as never,
     ...identity,
   } as never)
+}
+
+/**
+ * Forgets the control body's stored credential.
+ *
+ * The held bytes are only half of leaving the portal: the witness reads from the
+ * private-state store, so a credential that stays there is one the next person at
+ * this browser can answer with. Scoped to the authority's key alone — the
+ * reporter's state lives under its own `privateStateId` and has nothing to do
+ * with whoever just signed out.
+ */
+export async function forgetAuthorityState(
+  providers: AmparoProviders,
+  config: AmparoConfig,
+): Promise<void> {
+  providers.privateStateProvider.setContractAddress(config.contractAddress)
+  await providers.privateStateProvider.remove(AUTHORITY_PRIVATE_STATE_ID)
 }
 
 /**
@@ -276,15 +312,16 @@ async function deployedAmparo(
  * assert that names the contract rather than the build.
  */
 function authoritySecret(config: AmparoConfig): Uint8Array {
-  if (!config.authoritySecret) {
+  const secret = authorityOf(config)
+  if (!secret) {
     throw new Error(
-      'This build has no authority secret, so it cannot record an answer. Recording one ' +
-        "proves knowledge of the preimage of the contract's published authority " +
-        'commitment, and reading the backlog — which needs no secret at all — is what ' +
-        'this build can do. Set VITE_MN_AUTHORITY_SECRET from the deployment record.',
+      'No hay credencial de autoridad presentada, así que no se puede registrar una ' +
+        'respuesta. Registrarla prueba conocimiento de la preimagen del compromiso de ' +
+        'autoridad publicado por el contrato. Leer el registro público no necesita ninguna ' +
+        'credencial, y eso es lo que esta pantalla sí puede hacer sin identificarse.',
     )
   }
-  return config.authoritySecret
+  return secret
 }
 
 export class ChainReportingService implements ReportingService {

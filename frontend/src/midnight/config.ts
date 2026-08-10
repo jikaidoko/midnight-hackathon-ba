@@ -40,16 +40,18 @@ export interface AmparoConfig {
    * Absent is a legitimate build, so its absence must not fail at startup — it
    * fails when someone tries to record an answer, named.
    *
-   * 🔴 Baked into the build, which means WHOEVER HOLDS THE BUILD IS THE CONTROL
-   * BODY. That is acceptable for a local network whose deployment record is
-   * generated fresh and worthless, and it is not a way to ship this.
+   * 🔴 When set, WHOEVER HOLDS THE BUILD IS THE CONTROL BODY. It is no longer the
+   * only way in, and it is no longer the preferred one: `authority.ts` lets the
+   * body present its secret in the portal, held for the session and absent from
+   * the bundle. That path is what makes distributing the app stop being
+   * distributing the authority, and it makes the role VISIBLE in the interface
+   * rather than implied by which variables a build was compiled with.
    *
-   * The better shape, and the one to build next: the control body PASTES its
-   * secret when it opens the portal, held in memory for that session and never
-   * in the bundle. It costs one screen, and it buys the thing that matters — the
-   * build stops being the credential, so distributing the app stops being
-   * distributing the authority. It also makes the role visible in the interface
-   * instead of implied by which variables a build happened to be compiled with.
+   * This one survives as a local-network and CI convenience, where the
+   * deployment record is generated fresh and worthless. It loses to a presented
+   * secret, so a build that carries one can still be driven by whoever is
+   * actually sitting at the portal — and the shell says which of the two is in
+   * use, because a credential nobody can see is a credential nobody audits.
    */
   readonly authoritySecret?: Uint8Array
 }
@@ -57,15 +59,54 @@ export interface AmparoConfig {
 /** 32 bytes as 64 hex characters — the shape of both secrets this build reads. */
 const HEX_32 = /^[0-9a-fA-F]{64}$/
 
+/**
+ * The PREDICATES are shared; the wording is not.
+ *
+ * The authority secret now has a second way in — pasted into the portal — and
+ * both doors have to test the same thing, or the looser one decides. What they
+ * must NOT share is the sentence: one audience is a developer reading a startup
+ * failure with a variable name in it, the other is an official at a Spanish
+ * screen. Exporting a message-formatting helper instead of the test is how a
+ * refusal ends up half in each language, which is exactly what happened the
+ * first time this was written.
+ */
+export function isHex32(hex: string): boolean {
+  return HEX_32.test(hex)
+}
+
+/** Assumes `isHex32`. Callers phrase their own refusal before reaching this. */
+export function decodeHex32(hex: string): Uint8Array {
+  const bytes = new Uint8Array(32)
+  for (let i = 0; i < 32; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return bytes
+}
+
+/**
+ * Whether this value is the wallet seed — the one substitution the shape invites.
+ *
+ * Both secrets are 32 random bytes written as 64 hex characters and nothing about
+ * either says which is which. Swapping them does not fail readably: the witness
+ * hands over whatever it was given, a valid proof of a false statement gets built
+ * — tens of seconds of real work — and the transaction dies inside the circuit on
+ * a digest that cannot match.
+ *
+ * It matters MORE for a pasted value than a compiled one. A build is configured
+ * once by someone reading a file that names both; the portal is a text field an
+ * official pastes into from a clipboard that held something else a moment ago.
+ */
+export function isWalletSeed(rawHex: string): boolean {
+  const seed = import.meta.env.VITE_MN_WALLET_SEED as string | undefined
+  return Boolean(seed) && rawHex.toLowerCase() === (seed as string).toLowerCase()
+}
+
+/** Configuration's own phrasing: developer-facing, English, names the variable. */
 function hex32(hex: string, name: string): Uint8Array {
-  if (!HEX_32.test(hex)) {
+  if (!isHex32(hex)) {
     throw new Error(
       `${name} must be exactly 64 hex characters, with no 0x prefix and no whitespace.`,
     )
   }
-  const bytes = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-  return bytes
+  return decodeHex32(hex)
 }
 
 /**
@@ -88,8 +129,7 @@ function authoritySecretOf(): Uint8Array | undefined {
   if (!raw) return undefined
 
   const secret = hex32(raw, 'VITE_MN_AUTHORITY_SECRET')
-
-  if (raw.toLowerCase() === (import.meta.env.VITE_MN_WALLET_SEED as string | undefined)?.toLowerCase()) {
+  if (isWalletSeed(raw)) {
     throw new Error(
       'VITE_MN_AUTHORITY_SECRET is the same value as VITE_MN_WALLET_SEED. They are ' +
         'different credentials that happen to share a shape: the seed funds and signs the ' +

@@ -187,6 +187,42 @@ export function groundsByteLength(text: string): number {
 }
 
 /**
+ * Where the credential answering a case came from.
+ *
+ * `build` is not a synonym for "configured": it is the case where holding the
+ * bundle is holding the authority, and it is named apart so the interface can
+ * show it instead of letting it read as ordinary.
+ */
+export type AuthoritySource = 'session' | 'build' | 'none'
+
+/**
+ * Presenting the control body's credential.
+ *
+ * A service like the others so screens keep importing from one place, and — more
+ * importantly — so MOCK MODE has an implementation. A gate wired straight to the
+ * chain module would demand a credential from a build that has no chain to
+ * present it to, which is how a demo dies on a screen nobody could satisfy.
+ *
+ * Note what this does NOT gate: reading. The backlog is derivable by any
+ * observer and that is the property making "nobody told us" unavailable as a
+ * defence — putting a credential prompt in front of the inbox would delete it
+ * while looking like security. Only answering is gated, because only answering
+ * needs the secret.
+ */
+export interface AuthorityGateway {
+  /** Whether answering needs a credential at all. False in mock mode. */
+  readonly required: boolean
+  source(): AuthoritySource
+  /** Throws with the reason, verbatim, for the screen to show. */
+  present(rawHex: string): void
+  /** Drops the held credential and the stored state behind it. */
+  withdraw(): Promise<void>
+  subscribe(listener: () => void): () => void
+  /** Changes on every present/withdraw, for `useSyncExternalStore`. */
+  revision(): number
+}
+
+/**
  * Recording the body's answer. WRITES ONLY.
  *
  * There is deliberately no read side here. Responses are public ledger state,

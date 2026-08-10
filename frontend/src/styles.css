@@ -625,6 +625,12 @@ button, input, textarea { font: inherit; }
   color: var(--on-surface-variant);
   font-size: 14px;
 }
+/* A build carrying its own authority secret. Coloured like a warning because
+   that is what it is: whoever holds the bundle can answer cases. */
+.control-who.warn { color: var(--error); font-weight: 600; }
+.control-who.warn .control-avatar { background: var(--error-container); }
+.control-who.warn .control-avatar svg { color: var(--error); }
+.control-who.muted { opacity: 0.75; }
 .control-avatar {
   width: 40px; height: 40px;
   border-radius: 50%;
@@ -948,6 +954,28 @@ button, input, textarea { font: inherit; }
   min-height: 120px;
 }
 .field textarea:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--deep-midnight);
+  box-shadow: 0 0 0 2px rgba(38, 33, 92, 0.12);
+}
+/* Same surface as the textarea above. The authority secret is 64 hex characters
+   with no spaces, so it is monospaced and does not wrap: a proportional font
+   makes a truncated paste — the likeliest mistake at this field — impossible to
+   spot by eye. */
+.field input[type='password'],
+.field input[type='text'] {
+  background: rgba(241, 236, 242, 0.5);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-sm);
+  padding: var(--md);
+  color: var(--on-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+.field input[type='password']:focus,
+.field input[type='text']:focus {
   outline: none;
   background: #fff;
   border-color: var(--deep-midnight);

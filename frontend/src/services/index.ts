@@ -17,8 +17,17 @@ import {
   ChainReporterFeed,
   ChainReportingService,
   ChainResponseService,
+  forgetAuthorityState,
 } from '../midnight/adapters'
+import {
+  authorityRevision,
+  authoritySourceOf,
+  presentAuthority,
+  subscribeAuthority,
+  withdrawAuthority,
+} from '../midnight/authority'
 import type {
+  AuthorityGateway,
   CredentialService,
   DisclosureService,
   IdentityService,
@@ -57,12 +66,27 @@ interface Services {
    * rather than inventing a name for it.
    */
   titleOf(caseCommitment: string): string
+  authority: AuthorityGateway
 }
 
 function chainServices(): Services {
   const config = loadConfig()
   const providers = buildProviders(config)
   return {
+    authority: {
+      required: true,
+      source: () => authoritySourceOf(config),
+      present: presentAuthority,
+      // Held bytes AND stored state. Dropping only the first would leave the
+      // witness able to serve the credential to the next person at this browser,
+      // which is the opposite of what signing out means.
+      withdraw: async () => {
+        withdrawAuthority()
+        await forgetAuthorityState(providers, config)
+      },
+      subscribe: subscribeAuthority,
+      revision: authorityRevision,
+    },
     reporterFeed: new ChainReporterFeed(providers, config),
     reportingService: new ChainReportingService(providers, config),
     credentialService: new ChainCredentialService(providers, config),
@@ -80,6 +104,18 @@ function chainServices(): Services {
 
 function mockServices(): Services {
   return {
+    // No chain, no circuit, no commitment to prove knowledge of — so there is
+    // nothing a credential could mean here. `required: false` makes the gate
+    // render nothing rather than asking for a secret the mock would ignore, and
+    // a demo that walks the portal on fixtures keeps working.
+    authority: {
+      required: false,
+      source: () => 'build',
+      present: () => {},
+      withdraw: async () => {},
+      subscribe: () => () => {},
+      revision: () => 0,
+    },
     reporterFeed: mockFeed,
     reportingService: mockReporting,
     credentialService: mockCredential,
@@ -101,3 +137,4 @@ export const identityService = services.identityService
 export const oversightFeed = services.oversightFeed
 export const responseService = services.responseService
 export const titleOf = services.titleOf
+export const authority = services.authority
