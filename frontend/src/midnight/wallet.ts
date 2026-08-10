@@ -181,38 +181,58 @@ export function withWallet(
   if (!pending) {
     pending = (async () => {
       const ctx = await buildWallet(config)
-      const state = await firstValueFrom(
-        (ctx.wallet.state() as unknown as Observable<FacadeState>).pipe(
-          filter((s) => s.isSynced === true),
-          // `first`, not `each`: the filter suppresses every state until the
-          // synced one, so there is exactly one emission to wait for and the
-          // deadline is on reaching it.
-          timeout({
-            first: SYNC_TIMEOUT_MS,
-            with: () =>
-              throwError(
-                () =>
-                  new Error(
-                    `The wallet did not finish syncing within ${SYNC_TIMEOUT_MS / 1000}s, so ` +
-                      'nothing was signed or submitted. Check that the node and indexer in ' +
-                      'this build are reachable and are the ones the contract was deployed ' +
-                      'against. Reads do not need the wallet, which is why the rest of the ' +
-                      'app keeps working while writes do not.',
-                  ),
-              ),
-          }),
-        ),
-      )
-      const walletProvider = makeWalletProvider(ctx, state)
-      return {
-        ...base,
-        walletProvider,
-        midnightProvider: walletProvider,
-      } as unknown as AmparoProviders
+      // Everything past this point owns a STARTED wallet: indexer websocket
+      // subscriptions, a 2000-entry backpressure queue and an apply loop, none
+      // of which stop on their own. Dropping the reference does not stop them —
+      // so a rejected attempt, which the memoisation above deliberately makes
+      // retryable, would leave one running per press. Three retries against an
+      // unreachable node is three live facades syncing the same seed in one tab.
+      try {
+        return await synced(ctx, base)
+      } catch (error) {
+        // Best-effort, and it must not replace the original failure: `stop()`
+        // on a wallet that never reached a usable state is exactly where a
+        // second error is plausible, and reporting that one instead would hide
+        // the unreachable node the user can actually fix.
+        await ctx.wallet.stop().catch(() => {})
+        throw error
+      }
     })().catch((error) => {
       pending = null
       throw error
     })
   }
   return pending
+}
+
+/** Waits out the sync under a deadline, then attaches signing to the providers. */
+async function synced(ctx: WalletCtx, base: AmparoProviders): Promise<AmparoProviders> {
+  const state = await firstValueFrom(
+    (ctx.wallet.state() as unknown as Observable<FacadeState>).pipe(
+      filter((s) => s.isSynced === true),
+      // `first`, not `each`: the filter suppresses every state until the synced
+      // one, so there is exactly one emission to wait for and the deadline is on
+      // reaching it.
+      timeout({
+        first: SYNC_TIMEOUT_MS,
+        with: () =>
+          throwError(
+            () =>
+              new Error(
+                `The wallet did not finish syncing within ${SYNC_TIMEOUT_MS / 1000}s, so ` +
+                  'nothing was signed or submitted. Check that the node and indexer in ' +
+                  'this build are reachable and are the ones the contract was deployed ' +
+                  'against. Reads do not need the wallet, which is why the rest of the ' +
+                  'app keeps working while writes do not.',
+              ),
+          ),
+      }),
+    ),
+  )
+  const walletProvider = makeWalletProvider(ctx, state)
+  return {
+    ...base,
+    walletProvider,
+    midnightProvider: walletProvider,
+  } as unknown as AmparoProviders
 }
