@@ -12,15 +12,23 @@
 
     This script does the seeding, and it is loud about what it could not do.
 
-    Two rules it will not bend:
+    Three rules it will not bend:
 
-    1. A required item missing from the source is an ERROR, not a skip.
-       An absent contracts/.env does not raise anything at runtime: the code
-       falls back to a default network and returns data that looks valid. A
-       guard that cannot measure its subject must fail, because its silence is
-       indistinguishable from its approval.
+    1. What is copied is decided by what it costs to get back, not by whether
+       it is needed. Almost all of it is needed. Items that a command rebuilds
+       in seconds are NOT copied - copying them is how a worktree that should
+       be cheap starts costing megabytes for bytes a build step reproduces.
+       Items with no rebuild command at all are copied, and a failed copy of
+       one of those is fatal.
 
-    2. node_modules is never copied, linked or shared. It is installed per
+    2. A required item missing from the source is an ERROR, not a skip.
+       An absent contracts/.env does not raise anything at runtime: the loader
+       swallows the error and the network falls back to a local default, so the
+       code returns data that looks valid. A guard that cannot measure its
+       subject must fail, because its silence is indistinguishable from its
+       approval.
+
+    3. node_modules is never copied, linked or shared. It is installed per
        worktree. Sharing the tree is how a second copy of a wasm package
        reappears, and two copies break the application at runtime while the
        typecheck and the test suite stay green.
@@ -80,41 +88,73 @@ function Warn { param([string] $Message) Write-Host "  WARN  $Message" -Foregrou
 
 # --- What a usable worktree needs -------------------------------------------
 #
-# Required means: this must exist in the source checkout. If it does not, the
-# script stops rather than producing a worktree that looks ready and is not.
+# The axis that decides what to do with an item is not "is it needed" - almost
+# all of it is needed. It is WHAT IT COSTS TO GET IT BACK. Three tiers, and the
+# tier picks the behaviour:
 #
-# Order matters only for readability; the whole manifest is copied.
+#   irrecoverable  There is no command that rebuilds this. Lose the last copy
+#                  and the thing it unlocks is gone: the credentials a proof
+#                  derives from, the secret that answers a deployment, the
+#                  configuration someone wrote by hand. Copy it, and treat a
+#                  failed copy as fatal.
+#
+#   expensive      A command rebuilds it, but the command costs hours or tens
+#                  of megabytes. Copy it when it is there; when it is not, name
+#                  the command and its price instead of pretending it is fine.
+#
+#   regenerable    Seconds to rebuild. DO NOT COPY IT. Copying it is how a
+#                  worktree that should be cheap starts costing megabytes for
+#                  bytes that a build step reproduces exactly.
+#
+# `Required` is a separate, narrower flag: it marks the items whose ABSENCE is
+# silent. A missing contracts/.env raises nothing - the loader swallows the
+# error and the network falls back to the local default - so the script has to
+# be the thing that notices.
 
 $Manifest = @(
-    @{ Path = 'contracts/.env';                Required = $true;
-       Why  = 'network and contract selection; absent means a silent fallback' }
-    @{ Path = 'frontend/.env';                 Required = $true;
-       Why  = 'interface mode; absent means mock data with no warning' }
-    @{ Path = 'CLAUDE.md';                     Required = $true;
+    @{ Path = 'contracts/.env';              Tier = 'irrecoverable'; Required = $true
+       Why  = 'network, contract and secrets, written by hand. Its absence is swallowed and the network silently falls back to local' }
+    @{ Path = 'frontend/.env';               Tier = 'irrecoverable'; Required = $true
+       Why  = 'interface mode. Absent means mock data with no warning' }
+    @{ Path = 'CLAUDE.md';                   Tier = 'irrecoverable'; Required = $true
        Why  = 'the only working-notes file, deliberately untracked' }
+    @{ Path = 'contracts/midnight-level-db'; Tier = 'irrecoverable'; Required = $false
+       Why  = 'local private state. Holds the authority credential' }
+    @{ Glob = 'contracts/deployment.*.json'; Tier = 'irrecoverable'; Required = $false
+       Why  = 'deployment records. They carry the secret that answers that deployment' }
+    @{ Glob = 'contracts/subjects.*.json';   Tier = 'irrecoverable'; Required = $false
+       Why  = 'reporter credentials. The only thing that can rebuild the nullifiers a credential proof needs' }
 
-    @{ Path = 'contracts/.wallet-state';       Required = $false;
-       Why  = 'wallet sync state; rebuilding it costs hours' }
-    @{ Path = 'contracts/.zk-params';          Required = $false;
-       Why  = 'cached proving parameters, tens of megabytes' }
-    @{ Path = 'contracts/midnight-level-db';   Required = $false;
-       Why  = 'local private state database' }
-    @{ Path = 'contracts/src/managed';         Required = $false;
-       Why  = 'compiler output; rebuild with the compiler, not from Windows' }
-    @{ Path = 'frontend/public/zk';            Required = $false;
-       Why  = 'published proving assets; rebuild with npm run copy-zk' }
+    @{ Path = 'contracts/.wallet-state';     Tier = 'expensive';     Required = $false
+       Why  = 'wallet sync state'
+       Rebuild = 'resyncs from genesis on next use: hours' }
+    @{ Path = 'contracts/.zk-params';        Tier = 'expensive';     Required = $false
+       Why  = 'cached proving parameters'
+       Rebuild = 'downloaded on the first proof: tens of megabytes' }
 
-    @{ Glob = 'contracts/deployment.*.json';   Required = $false;
-       Why  = 'deployment records; they carry the authority secret' }
-    @{ Glob = 'contracts/subjects.*.json';     Required = $false;
-       Why  = 'reporter credentials' }
+    @{ Path = 'contracts/src/managed';       Tier = 'regenerable';   Required = $false
+       Why  = 'compiler output'
+       Rebuild = 'compact compile --skip-zk src/amparo.compact src/managed/amparo' }
+    @{ Path = 'frontend/public/zk';          Tier = 'regenerable';   Required = $false
+       Why  = 'published proving assets'
+       Rebuild = 'npm run copy-zk (in frontend/)' }
 )
 
-# Sentinel: a manifest that lost its required entries would seed nothing and
-# report success. Refuse to run rather than approve by omission.
-$requiredCount = @($Manifest | Where-Object { $_.Required }).Count
-if ($requiredCount -lt 1) {
-    Fail 'the seed manifest declares no required item. It was gutted; nothing here can be trusted.'
+# Sentinels. A manifest that lost its irrecoverable entries, or its required
+# ones, would seed almost nothing and still report success. Refuse to run rather
+# than approve by omission.
+$requiredCount      = @($Manifest | Where-Object { $_.Required }).Count
+$irrecoverableCount = @($Manifest | Where-Object { $_.Tier -eq 'irrecoverable' }).Count
+if ($requiredCount -lt 1 -or $irrecoverableCount -lt 1) {
+    Fail 'the seed manifest lost its required or irrecoverable entries. It was gutted; nothing here can be trusted.'
+}
+
+$knownTiers = @('irrecoverable', 'expensive', 'regenerable')
+foreach ($item in $Manifest) {
+    if ($knownTiers -notcontains $item.Tier) {
+        $label = if ($item.ContainsKey('Path')) { $item.Path } else { $item.Glob }
+        Fail "manifest entry '$label' declares an unknown tier '$($item.Tier)'. A tier decides whether the item is copied at all."
+    }
 }
 
 # --- Locate the source checkout ---------------------------------------------
@@ -279,15 +319,31 @@ Step 'Copying local state'
 
 $copied  = @()
 $skipped = @()
+$rebuild = @()
 
 foreach ($item in $Manifest) {
+
+    # Regenerable by definition: a build step reproduces it exactly, in
+    # seconds. Copying it would trade megabytes for nothing.
+    if ($item.Tier -eq 'regenerable') {
+        $label = if ($item.ContainsKey('Path')) { $item.Path } else { $item.Glob }
+        $rebuild += "$label  ->  $($item.Rebuild)"
+        continue
+    }
 
     if ($item.ContainsKey('Glob')) {
         $pattern = Join-Path $RepoRoot ($item.Glob -replace '/', '\')
         # Not $matches: that name is an automatic variable.
         $found = @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue)
         if ($found.Count -eq 0) {
-            $skipped += "$($item.Glob) (none found) - $($item.Why)"
+            if ($item.Tier -eq 'irrecoverable') {
+                Warn "$($item.Glob) matched nothing and NOTHING REBUILDS IT."
+                Warn "      $($item.Why)"
+                Warn '      Fine if it was never created. If it existed, it is gone.'
+            }
+            else {
+                $skipped += "$($item.Glob) (none found) - $($item.Why)"
+            }
             continue
         }
         foreach ($m in $found) {
@@ -307,8 +363,19 @@ foreach ($item in $Manifest) {
     $target = Join-Path $Path     $item.Path
 
     if (-not (Test-Path -LiteralPath $source)) {
-        # Required items were checked above; reaching here means optional.
-        $skipped += "$($item.Path) (absent in source) - $($item.Why)"
+        # Required items were checked above, so reaching here means the item is
+        # optional - but "optional" is not "unimportant". An irrecoverable item
+        # that is simply absent may never have been created, which is fine; the
+        # script cannot tell that apart from a loss, so it says so out loud
+        # instead of filing it under routine skips.
+        if ($item.Tier -eq 'irrecoverable') {
+            Warn "$($item.Path) is absent in the source and NOTHING REBUILDS IT."
+            Warn "      $($item.Why)"
+            Warn '      Fine if it was never created. If it existed, it is gone.'
+        }
+        else {
+            $skipped += "$($item.Path) (absent in source) - $($item.Why). Rebuild: $($item.Rebuild)"
+        }
         continue
     }
 
@@ -328,25 +395,34 @@ foreach ($item in $Manifest) {
 
 foreach ($c in $copied)  { Ok $c }
 foreach ($s in $skipped) { Note "not copied: $s" }
+foreach ($r in $rebuild) { Note "regenerable, deliberately not copied: $r" }
 
-# Verify the required set landed, rather than assuming the copies worked.
+# Verify rather than assume. Two classes are checked: everything required, and
+# every irrecoverable item that WAS present in the source. A copy of something
+# with no rebuild command that silently did not land is the worst outcome this
+# script can produce, because the worktree looks ready.
 $notLanded = @()
 foreach ($item in $Manifest) {
     if ($item.ContainsKey('Glob')) { continue }
-    if (-not $item.Required) { continue }
-    if (-not (Test-Path -LiteralPath (Join-Path $Path $item.Path))) {
-        $notLanded += $item.Path
+    if ($item.Tier -eq 'regenerable') { continue }
+
+    $mustLand = $item.Required -or
+                ($item.Tier -eq 'irrecoverable' -and
+                 (Test-Path -LiteralPath (Join-Path $RepoRoot $item.Path)))
+
+    if ($mustLand -and -not (Test-Path -LiteralPath (Join-Path $Path $item.Path))) {
+        $notLanded += "$($item.Path)  [$($item.Tier)]"
     }
 }
 if ($notLanded.Count -gt 0) {
     Fail @"
-required state did not land in the worktree:
+state that had to land did not:
     $($notLanded -join "`n    ")
 The worktree exists but is not usable. Remove it with:
     git worktree remove "$Path"
 "@
 }
-Ok 'every required item verified in the destination'
+Ok "required and irrecoverable state verified in the destination"
 
 # --- Dependencies -----------------------------------------------------------
 #
@@ -385,11 +461,14 @@ Write-Host ''
 Write-Host 'Done.' -ForegroundColor White
 Write-Host "  cd `"$Path`""
 Write-Host ''
-Write-Host '  Still manual, if you need it:' -ForegroundColor DarkGray
-Write-Host '    - contracts/src/managed is compiler output. Rebuild it with the' -ForegroundColor DarkGray
-Write-Host '      compiler toolchain, not from a Windows shell.' -ForegroundColor DarkGray
-Write-Host '    - frontend/public/zk is rebuilt with: npm run copy-zk' -ForegroundColor DarkGray
-Write-Host ''
+if ($rebuild.Count -gt 0) {
+    Write-Host '  Regenerable, so it was not copied. Run these when you need them:' -ForegroundColor DarkGray
+    foreach ($r in $rebuild) {
+        Write-Host "    $r" -ForegroundColor DarkGray
+    }
+    Write-Host '    (compile from the compiler toolchain, not from a Windows shell)' -ForegroundColor DarkGray
+    Write-Host ''
+}
 Write-Host '  When the branch is merged, remove the worktree with' -ForegroundColor DarkGray
 Write-Host "    git worktree remove `"$Path`"" -ForegroundColor DarkGray
 Write-Host '  never with a recursive delete: that leaves a stale reference behind.' -ForegroundColor DarkGray
