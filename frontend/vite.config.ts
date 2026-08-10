@@ -88,13 +88,24 @@ export default defineConfig({
     // packages excluded, which is what the plugins above need.
     include: ['object-inspect'],
   },
-  // `process` is a Node global, and Vite externalises it for the browser like
-  // every other builtin. Some dependencies GUARD it (`typeof process === 'object'`)
-  // and survive; others read `process.env` directly and throw at module load with
-  // "process is not defined", from inside an esbuild CommonJS wrapper whose stack
-  // names only the wrapper. Replacing the expression textually keeps the guarded
-  // reads working - a real `process` object would make those guards pass and then
-  // fail on the member they expected.
+  // `process.env` replaced textually, in every bundled module.
+  //
+  // `process` is a Node global and Vite externalises it for the browser like
+  // every other builtin, so a dependency reading `process.env` at module scope
+  // throws "process is not defined" from inside an esbuild CommonJS wrapper
+  // whose stack names only the wrapper.
+  //
+  // This is not the only shim: `index.html` installs a real `process` object
+  // before any module is evaluated, for the members a `define` cannot reach -
+  // `stderr`, `emit`, `emitWarning`, the EventEmitter-shaped no-ops. The two do
+  // NOT overlap and the ordering between them does not matter, because this
+  // substitution is textual: `process.env` never survives to become a property
+  // lookup on that object, so the shim's own `env` is unreachable from bundled
+  // code and this line is what actually answers `process.env.NODE_DEBUG`.
+  //
+  // Keep both. Dropping this one breaks module-scope `process.env` reads in
+  // dependencies; dropping the shim breaks everything that touches `process`
+  // through any other member.
   define: { 'process.env': '{}' },
   build: { target: 'esnext' },
   server: { host: true, port: 5173 },
