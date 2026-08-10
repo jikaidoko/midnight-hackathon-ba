@@ -1,0 +1,36 @@
+# Who owns what.
+#
+# This file does two jobs at once:
+#
+#   1. It requests a review automatically when a pull request is marked ready
+#      for review. It does not fire on drafts, which is the point: open a draft
+#      while you work, mark it ready when you want eyes on it.
+#
+#   2. It is the ownership map. Check who is listed for the area you are about
+#      to touch, before you start. Two people writing the same module in
+#      parallel is the most expensive failure in concurrent work: nobody finds
+#      out until the merge, and then finished, working code has to be thrown
+#      away.
+#
+# One rule this file must keep: no path may have a single owner. A code owner
+# is never asked to review their own pull request, so a path owned by one
+# person requests nothing and the file becomes decorative. Every line below
+# lists at least two people for that reason.
+#
+# The split below is a starting point based on where each area has been worked.
+# Adjust it to match reality - just keep every line at two names or more.
+
+# Fallback: anything not matched by a rule below.
+*                   @jikaidoko @THAPOVS @Myebou
+
+# Circuits, their tests and the off-chain drivers.
+/contracts/         @jikaidoko @Myebou
+
+# Interface, bundler configuration and the browser runtime.
+/frontend/          @THAPOVS @jikaidoko
+
+# Repository tooling.
+/scripts/           @jikaidoko @THAPOVS
+
+# Automation and process. Changes here affect everyone.
+/.github/           @jikaidoko @THAPOVS @Myebou

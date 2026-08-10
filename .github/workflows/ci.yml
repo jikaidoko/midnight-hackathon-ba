@@ -1,0 +1,114 @@
+# Continuous integration.
+#
+# Why this exists: without a check, the "mergeable / clean" badge on a pull
+# request means only "no textual conflict". Nobody has verified that the result
+# compiles or that the tests pass, so every merge rests on one person running
+# the suite by hand and reporting it honestly.
+#
+# Two jobs, on purpose:
+#
+#   `ci`        Verified to pass before this workflow was committed. This is the
+#               one branch protection requires. It installs both packages and
+#               runs the wasm guard, which is the check for the most expensive
+#               failure this project has: two copies of the same wasm package
+#               break the application at runtime while the typecheck and the
+#               whole test suite stay green.
+#
+#   `contracts` Compiles the circuits and runs the full suite. It needs the
+#               Compact toolchain in the runner, which was never exercised here
+#               before. It starts NOT required: let it prove itself on a few
+#               pull requests, then add it to the protection contexts. A gate
+#               that has never been observed passing is not a gate.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            contracts/package-lock.json
+            frontend/package-lock.json
+
+      # Both trees are installed because the wasm guard inspects both. It fails
+      # when a tree is missing rather than approving it, so a partial install
+      # would turn the guard into a silent pass.
+      - name: Install contracts dependencies
+        working-directory: contracts
+        run: npm ci --no-audit --no-fund
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: One wasm instance per package
+        working-directory: frontend
+        run: npm run check-wasm
+
+  contracts:
+    name: contracts (not required yet)
+    runs-on: ubuntu-latest
+    # Do not block a pull request on a job whose toolchain step has never been
+    # observed succeeding here. Remove this line once it has.
+    continue-on-error: true
+    env:
+      # Pin the toolchain. "latest" is not reproducible: the compiler can move
+      # under a green build and the artifact stops matching what was reviewed.
+      COMPACT_VERSION: '0.31.1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+
+      - name: Install the Compact toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+
+      - name: Pin the compiler version
+        run: |
+          compact update "$COMPACT_VERSION"
+          compact compile --version
+
+      - name: Install dependencies
+        working-directory: contracts
+        run: npm ci --no-audit --no-fund
+
+      # --skip-zk produces the TypeScript artifacts the typecheck and the
+      # simulator need, in seconds, without generating proving keys. The suite
+      # runs against the simulator: no proof server, no network.
+      - name: Compile the circuits
+        working-directory: contracts
+        run: compact compile --skip-zk src/amparo.compact src/managed/amparo
+
+      - name: Typecheck
+        working-directory: contracts
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: contracts
+        run: npm test
