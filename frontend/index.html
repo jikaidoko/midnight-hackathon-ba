@@ -11,6 +11,64 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      A `process` global, installed before any module is evaluated.
+
+      Node's `assert` shim - aliased in `vite.config.ts` because @subsquid/scale-codec
+      calls it as a function - pulls in `util`, and `util` reads `process.env.NODE_DEBUG`
+      as a bare global at module scope. In a browser that is a ReferenceError thrown while
+      the module graph loads, so nothing renders and the stack names only dependencies.
+
+      It lives here, and not in a module imported first by the entry point, because the
+      ordering must be structural. An import that has to stay first is a convention any
+      import sorter can silently undo, and the symptom would be this same blank page.
+
+      Scope is what was MEASURED in the dependency graph, not a guess: `env`, `nextTick`,
+      `hrtime`, `stdout`/`stderr`, `emit`/`emitWarning`, `pid`, and the three deprecation
+      flags. Diagnostic writes are routed to the console rather than dropped - a shim that
+      silently swallows a warning is worse than the missing global it replaces. Anything
+      outside this surface is deliberately absent, so a new dependency that needs more
+      fails loudly here instead of reading a plausible lie.
+    -->
+    <script>
+      globalThis.process = globalThis.process || {
+        env: {},
+        argv: [],
+        pid: 0,
+        platform: 'browser',
+        browser: true,
+        version: '',
+        versions: {},
+        noDeprecation: false,
+        throwDeprecation: false,
+        traceDeprecation: false,
+        cwd: function () { return '/'; },
+        nextTick: function (fn) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          queueMicrotask(function () { fn.apply(null, args); });
+        },
+        hrtime: Object.assign(
+          function (previous) {
+            var ns = Math.round(performance.now() * 1e6);
+            var s = Math.floor(ns / 1e9);
+            var rest = ns % 1e9;
+            if (!previous) return [s, rest];
+            var ds = s - previous[0];
+            var dns = rest - previous[1];
+            return dns < 0 ? [ds - 1, dns + 1e9] : [ds, dns];
+          },
+          { bigint: function () { return BigInt(Math.round(performance.now() * 1e6)); } }
+        ),
+        stdout: { write: function (chunk) { console.log(String(chunk).trimEnd()); return true; } },
+        stderr: { write: function (chunk) { console.warn(String(chunk).trimEnd()); return true; } },
+        emit: function () { return false; },
+        emitWarning: function (warning) { console.warn(warning); },
+        on: function () { return globalThis.process; },
+        once: function () { return globalThis.process; },
+        off: function () { return globalThis.process; },
+        removeListener: function () { return globalThis.process; },
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

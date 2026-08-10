@@ -20,18 +20,38 @@ import type { AmparoConfig } from './config'
 /**
  * Circuits with keys on disk that a page in THIS app can reach.
  *
- * The contract has four. Two are the authority's alone — `admitCase` and
- * `respondToCase` — and no reporter session calls either, so they are left off
- * rather than fetched and unused. That is a scoping decision about this app,
- * not a claim that two circuits exist.
+ * The contract has four and this build reaches three. `registerFiling` and
+ * `proveRepeatFilings` belong to the reporter; `respondToCase` belongs to the
+ * control body, whose portal lives at `/control` in this same build, so its key
+ * has to be served like any other.
  *
- * It is recorded here because the omission and the oversight look identical
- * from the code: whoever adds the control body's screens has to add its
- * circuits to this list, or `assertZkAssets` will pass while the very key that
- * flow needs is unserved — and the failure lands seconds after the button,
- * which is the exact failure this guard was written to move earlier.
+ * `admitCase` is the one left off, and deliberately: admission has no screen
+ * here. Nothing in this app can call it, so fetching its key would only make the
+ * guard pass for a flow that does not exist.
+ *
+ * This list is what `assertZkAssets` probes, so a circuit missing from it is a
+ * guard that reports success while the very key that flow needs is unserved —
+ * and that failure lands seconds after the button, which is the exact failure
+ * the guard was written to move earlier. Adding a screen means adding its
+ * circuit here.
  */
-export type AmparoCircuitId = 'registerFiling' | 'proveRepeatFilings'
+export type AmparoCircuitId = 'registerFiling' | 'proveRepeatFilings' | 'respondToCase'
+
+/**
+ * The same list as a value, because a type is erased at build time and the
+ * guard has to iterate something at runtime.
+ *
+ * It is a `Record` and not an array so the compiler enforces the pairing:
+ * widening `AmparoCircuitId` without adding the member here fails to typecheck,
+ * which is the only mechanism that keeps the guard's coverage honest. An array
+ * annotated with the union accepts any subset of it silently — including the
+ * empty one, where the guard probes nothing and reports success.
+ */
+const REACHABLE_CIRCUITS: Record<AmparoCircuitId, true> = {
+  registerFiling: true,
+  proveRepeatFilings: true,
+  respondToCase: true,
+}
 
 /**
  * Where the compiler's `keys/`, `zkir/` and `verifier/` are served from.
@@ -61,7 +81,22 @@ export const MIDNIGHT_DB = 'amparo-midnight'
 export const PRIVATE_STATE_STORE = 'amparo-private-state'
 export const SIGNING_KEY_STORE = 'amparo-signing-keys'
 
+/**
+ * One key per ROLE, not one per app.
+ *
+ * The two roles hold different credentials — a reporter's `subjectSecret`, the
+ * control body's `authoritySecret` — and the witness object refuses to serve one
+ * from the other's state. Filing them under a single key would mean whichever
+ * role wrote first owns the slot, and `initialPrivateState` is only consulted
+ * when the key is ABSENT: the second role's state would be silently ignored
+ * rather than rejected, and the failure would surface as the wrong role's secret
+ * being offered to the circuit.
+ *
+ * Both live in the same store, scoped by the same `accountId`. Separate keys are
+ * exactly what `privateStateId` is for.
+ */
 export const PRIVATE_STATE_ID = 'amparo-subject'
+export const AUTHORITY_PRIVATE_STATE_ID = 'amparo-authority'
 
 export interface AmparoProviders {
   publicDataProvider: ReturnType<typeof indexerPublicDataProvider>
@@ -128,7 +163,7 @@ function privateStatePassword(): string {
  * flow the demo ran second.
  */
 export async function assertZkAssets(): Promise<void> {
-  const circuits: AmparoCircuitId[] = ['registerFiling', 'proveRepeatFilings']
+  const circuits = Object.keys(REACHABLE_CIRCUITS) as AmparoCircuitId[]
 
   for (const circuit of circuits) {
     const probe = `${ZK_BASE}/keys/${circuit}.prover`
