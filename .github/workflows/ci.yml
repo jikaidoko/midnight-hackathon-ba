@@ -14,11 +14,11 @@
 #               break the application at runtime while the typecheck and the
 #               whole test suite stay green.
 #
-#   `contracts` Compiles the circuits and runs the full suite. It needs the
-#               Compact toolchain in the runner, which was never exercised here
-#               before. It starts NOT required: let it prove itself on a few
-#               pull requests, then add it to the protection contexts. A gate
-#               that has never been observed passing is not a gate.
+#   `contracts` Installs the Compact toolchain, compiles the circuits and runs
+#               the full suite. This had never been exercised in a runner, so
+#               it first landed non-blocking - a gate nobody has seen pass is
+#               not a gate. It then passed every step on its first run,
+#               reporting 64 tests, 64 pass, 0 fail, so it blocks now.
 
 name: CI
 
@@ -65,11 +65,8 @@ jobs:
         run: npm run check-wasm
 
   contracts:
-    name: contracts (not required yet)
+    name: contracts
     runs-on: ubuntu-latest
-    # Do not block a pull request on a job whose toolchain step has never been
-    # observed succeeding here. Remove this line once it has.
-    continue-on-error: true
     env:
       # Pin the toolchain. "latest" is not reproducible: the compiler can move
       # under a green build and the artifact stops matching what was reviewed.
