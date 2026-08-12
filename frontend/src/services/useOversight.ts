@@ -1,9 +1,11 @@
-// useOversight.ts — the control portal's subscriptions.
+// useOversight.ts — the control portal's subscription to the public ledger.
 //
-// Two of them, kept separate because they come from different places and one of
-// them may not exist. The backlog is public chain state. Responses are written
-// by a circuit this build does not carry, so in chain mode that half is empty
-// and says so. Joining them into one hook would hide which half went missing.
+// One stream, and it takes no secret. Everything the portal shows — the
+// backlog, which cases crossed the threshold, which of those were answered and
+// which were not — comes from state any observer can read. That is not a
+// convenience: an oversight view that required a credential would quietly
+// delete the property the whole design rests on, which is that "nobody told us"
+// is not available as a defence.
 
 import { useEffect, useState } from 'react'
 import type { PublicLedgerView } from './contracts'

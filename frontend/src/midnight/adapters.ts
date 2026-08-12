@@ -35,9 +35,14 @@ import type {
 } from '../services/contracts'
 import type { ResponseKind } from '@amparo/contracts/ledger'
 import type { AmparoConfig } from './config'
-import { PRIVATE_STATE_ID, type AmparoProviders } from './providers'
+import {
+  AUTHORITY_PRIVATE_STATE_ID,
+  PRIVATE_STATE_ID,
+  type AmparoProviders,
+} from './providers'
+import { withWallet } from './wallet'
 import { filingsElsewhere, filingsFor, fromHex, recordFiling, subjectSecret } from './subject-store'
-import { createSubjectState } from '@amparo/generated/amparo-witnesses.js'
+import { createAuthorityState, createSubjectState } from '@amparo/generated/amparo-witnesses.js'
 
 export type { CaseView }
 
@@ -179,7 +184,7 @@ export class ChainResponseService implements ResponseService {
       throw new Error('Este caso ya tiene respuesta registrada, y no se puede editar.')
     }
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'authority')
     const called = await (contract as unknown as {
       callTx: {
         respondToCase(
@@ -195,13 +200,74 @@ export class ChainResponseService implements ResponseService {
   }
 }
 
-async function deployedAmparo(providers: AmparoProviders, config: AmparoConfig) {
-  return findDeployedContract(providers as never, {
+/**
+ * Which credential a circuit will ask for.
+ *
+ * The contract is one contract but not one role: `registerFiling` and
+ * `proveRepeatFilings` ask for the reporter's secret, `respondToCase` asks for
+ * the control body's. Naming it at the call site is what keeps that visible —
+ * the alternative is a single default that is silently right for two of the
+ * three flows.
+ */
+type CallerRole = 'reporter' | 'authority'
+
+/**
+ * The contract handle, with a wallet attached and the caller's own credential.
+ *
+ * The wallet is built here and not at startup, so the cost of a sync is paid by
+ * the first write rather than by every reader. Reads never come through this
+ * function — which is the same separation the oversight view depends on, one
+ * layer down: deriving the backlog requires no key, and nothing here can quietly
+ * make it require one.
+ *
+ * The role decides the private state, and it used to be hard-coded to the
+ * reporter's. That made answering a case impossible from this build in a way no
+ * screen could reveal: the portal rendered, the button worked, and the witness
+ * would refuse a secret it was never given.
+ */
+async function deployedAmparo(
+  providers: AmparoProviders,
+  config: AmparoConfig,
+  role: CallerRole,
+) {
+  const signing = await withWallet(providers, config)
+  const identity =
+    role === 'authority'
+      ? {
+          privateStateId: AUTHORITY_PRIVATE_STATE_ID,
+          initialPrivateState: createAuthorityState(authoritySecret(config)),
+        }
+      : {
+          privateStateId: PRIVATE_STATE_ID,
+          initialPrivateState: createSubjectState(subjectSecret()),
+        }
+
+  return findDeployedContract(signing as never, {
     contractAddress: config.contractAddress,
     compiledContract: amparoContract() as never,
-    privateStateId: PRIVATE_STATE_ID,
-    initialPrivateState: createSubjectState(subjectSecret()),
+    ...identity,
   } as never)
+}
+
+/**
+ * The control body's credential, or a refusal that says which build this is.
+ *
+ * Absence is not a misconfiguration to be papered over: a build without it is a
+ * reporter's build, which is the common and correct case. What it must not do is
+ * hand the circuit a placeholder — zeroes would prove a false statement about a
+ * digest that cannot match, spending the proving time first and failing on an
+ * assert that names the contract rather than the build.
+ */
+function authoritySecret(config: AmparoConfig): Uint8Array {
+  if (!config.authoritySecret) {
+    throw new Error(
+      'This build has no authority secret, so it cannot record an answer. Recording one ' +
+        "proves knowledge of the preimage of the contract's published authority " +
+        'commitment, and reading the backlog — which needs no secret at all — is what ' +
+        'this build can do. Set VITE_MN_AUTHORITY_SECRET from the deployment record.',
+    )
+  }
+  return config.authoritySecret
 }
 
 export class ChainReportingService implements ReportingService {
@@ -225,7 +291,7 @@ export class ChainReportingService implements ReportingService {
       throw new Error('This case is not in the admitted registry')
     }
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'reporter')
     const called = await (contract as unknown as {
       callTx: { registerFiling(c: Uint8Array): Promise<{ public: { txId: string } }> }
     }).callTx.registerFiling(commitment)
@@ -281,7 +347,7 @@ export class ChainCredentialService implements CredentialService {
       return path
     })
 
-    const contract = await deployedAmparo(this.providers, this.config)
+    const contract = await deployedAmparo(this.providers, this.config, 'reporter')
     const called = await (contract as unknown as {
       callTx: {
         proveRepeatFilings(

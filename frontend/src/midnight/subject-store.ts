@@ -22,6 +22,8 @@
 // clearing site data destroys the credential with no recovery. A real
 // deployment puts this in a wallet.
 
+import type { AdoptionOutcome } from '../services/contracts'
+
 const KEY = 'amparo.subject.v1'
 
 export interface SubjectRecord {
@@ -85,6 +87,57 @@ export function subjectSecret(): Uint8Array {
   const secret = crypto.getRandomValues(new Uint8Array(32))
   write({ secret: toHex(secret), filings: {} })
   return secret
+}
+
+/**
+ * Installs a secret derived from the reporter's spoken phrase.
+ *
+ * This is the one way an identity becomes RECOVERABLE. A secret minted by
+ * `subjectSecret()` exists only in this browser's storage, so clearing site data
+ * destroys it and the filings stop being provably anyone's. A derived secret can
+ * be recomputed from the phrase on any device, with nothing stored.
+ *
+ * The three outcomes, and why the middle one is not a footgun:
+ *
+ *   - nothing on file            -> adopted.
+ *   - the same secret on file    -> no-op; the phrase is simply confirmed.
+ *   - a DIFFERENT secret on file -> replaced only while NO filings are recorded,
+ *     refused once there are.
+ *
+ * That last split is the whole design. Merely opening the reports screen makes
+ * the feed mint a random secret, so refusing outright would lock someone out of
+ * their own phrase for having browsed first - and the refusal is not protecting
+ * anything at that point, because a secret with no filings under it has nothing
+ * to lose. Once filings exist the replacement IS destructive: their nullifiers
+ * derive from the old secret and nothing on chain links them to a person, so no
+ * later step could reattach them. Hence loud, and hence not overridable here.
+ */
+export function adoptDerivedSecret(secret: Uint8Array): AdoptionOutcome {
+  const hex = toHex(secret)
+  const existing = read()
+  if (!existing) {
+    write({ secret: hex, filings: {} })
+    return 'created'
+  }
+  if (existing.secret === hex) return 'confirmed'
+
+  const recorded = Object.values(existing.filings).reduce((n, cases) => n + cases.length, 0)
+  if (recorded > 0) {
+    throw new Error(
+      'Esta frase no corresponde a la credencial guardada en este dispositivo, que ya tiene ' +
+        `${recorded} denuncia(s) registrada(s). Reemplazarla las dejaria sin forma de probarse, ` +
+        'para siempre. Si la frase es la correcta, abrila en un dispositivo sin credencial guardada.',
+    )
+  }
+  // No filings under the old secret, so nothing is being abandoned: the derived
+  // one takes over and the identity becomes recoverable from here on.
+  write({ secret: hex, filings: {} })
+  return 'replaced'
+}
+
+/** Whether this browser already holds a credential. */
+export function hasStoredSecret(): boolean {
+  return read() !== null
 }
 
 /** Cases filed against one registry, as recorded locally. */

@@ -74,27 +74,66 @@ export interface CredentialService {
 }
 
 /**
- * Unlocks the reporter's secret â€” the value every one of their nullifiers
- * derives from, and the only thing that links their filings to each other.
+ * Turns a SPOKEN PHRASE into the reporter's secret - the value every one of
+ * their nullifiers derives from, and the only thing that links their filings to
+ * each other.
  *
- * The voice match itself is DEMO ONLY: nothing in this build records or
- * compares audio. What is real is the shape â€” the biometric stays off-chain and
- * unlocks a local secret, and only the secret ever reaches a circuit. Audio
- * must never become public state, so this boundary is the design, not a detour.
+ * NOT voice biometrics, and the difference is not a detail. Nothing measures a
+ * voice: the phrase is recognised as text and only the WORDS survive, so anyone
+ * who says the same phrase gets the same credential. Biometrics would need a
+ * fuzzy extractor - a reading varies between takes, so a secret hashed from one
+ * changes every time and can never rebuild a nullifier. `PASSPHRASE_NOTICE` is
+ * on screen because a demo that let this read as "your voice is your key" would
+ * be claiming the part that does not exist.
+ *
+ * What it buys, and it is the property a device-minted secret cannot have: the
+ * phrase is not stored anywhere, so the identity survives a cleared browser and
+ * moves between devices. The audio, when a microphone is used at all, never
+ * leaves the machine - see `spoken-phrase.ts`, which refuses the microphone
+ * outright rather than let a cloud recogniser see the phrase.
  */
 export interface IdentityService {
-  unlock(): Promise<IdentityResult>
+  /**
+   * Takes the phrase as text, from speech or typing, and derives the secret.
+   *
+   * Rejects if the phrase is below the floor, or if it does not match a
+   * credential already on this device that has filings under it - replacing that
+   * one would strand them permanently.
+   */
+  unlock(phrase: string): Promise<IdentityResult>
 }
+
+/**
+ * What unlocking actually did to the credential on this device.
+ *
+ * Three values rather than a boolean, because "there was already a credential
+ * here" and "the phrase reproduced it" are different facts and only the second is
+ * a recovery. A stored random secret with no filings under it gets REPLACED, so a
+ * boolean would report that as confirmation of a phrase nothing confirmed.
+ *
+ * And the honest limit: on a device that never held a credential, no phrase can
+ * be confirmed, so a typo and the real phrase both land on `created`. The screen
+ * says that rather than implying a check happened.
+ */
+export type AdoptionOutcome = 'created' | 'confirmed' | 'replaced'
 
 export interface IdentityResult {
-  /** Label of the reporter this session acts as. Never leaves the device. */
-  readonly subject: string
-  /** DEMO ONLY: no audio was captured or compared. */
-  readonly voiceProven: false
+  readonly outcome: AdoptionOutcome
+  /** Words the phrase reduced to, so a thin phrase is visible rather than implied. */
+  readonly words: number
 }
 
-export const DEMO_ONLY_VOICE =
-  'Demo: voice is simulated; no audio is captured in this build.'
+/**
+ * Rendered wherever the phrase is captured.
+ *
+ * Says the two things someone would otherwise assume wrongly: that this is not
+ * recognising them, and that the phrase is the whole secret. The second is the
+ * part with a real cost - nullifiers are public, so guessing the phrase is an
+ * offline attack that links the filings together.
+ */
+export const PASSPHRASE_NOTICE =
+  'No es reconocimiento de voz: vale la frase, no quien la dice. Elegila larga y que no ' +
+  'la diga nadie mas, porque es todo tu secreto y no queda guardada en ningun lado.'
 
 /**
  * DEMO ONLY â€” this has no circuit behind it, and no on-chain meaning.

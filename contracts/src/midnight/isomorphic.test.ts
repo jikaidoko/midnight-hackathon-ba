@@ -44,6 +44,17 @@ const SUBJECTS = [
   },
   // Ledger decoding and the pure circuits that derive on-chain lookup keys.
   { file: 'ledger.ts', mustExport: [/export function filingNullifier/] },
+  {
+    // Runs on the reporter's device and nowhere else: the phrase is the secret,
+    // so a version of this that needed a Node API would mean deriving somewhere
+    // other than the browser, which is the one place it may happen.
+    //
+    // `crypto.subtle` is what keeps it portable. Node's `crypto.pbkdf2` would
+    // pass every test here and fail at module load in a browser, which is
+    // precisely the class of bug this guard exists for.
+    file: 'passphrase.ts',
+    mustExport: [/export function normalizePassphrase/, /export async function derivePassphraseSecret/],
+  },
 ] as const;
 
 function sourceOf(file: string): string {

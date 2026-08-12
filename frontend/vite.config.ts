@@ -21,6 +21,29 @@ import { fileURLToPath, URL } from 'node:url'
 export default defineConfig({
   plugins: [react(), wasm(), topLevelAwait()],
   resolve: {
+    // ONE copy of each wasm package in the graph, resolved from this package's
+    // `node_modules` no matter who imported it.
+    //
+    // Keeping the two `node_modules` separate is what stops npm from nesting a
+    // second VERSION. It does not stop a second COPY: `@amparo/generated` points
+    // at the contract layer's source, and the generated contract imports
+    // `@midnight-ntwrk/compact-runtime` — which, resolved from there, is
+    // `contracts/node_modules`. Both directories then load, at the same version,
+    // and a bundler keys modules by resolved path, so that is two wasm instances
+    // with two sets of classes.
+    //
+    // The symptom is `expected instance of ChargedState`, thrown from inside a
+    // dependency the first time real contract state is decoded — so mock mode is
+    // clean, the build is clean, and the tests are clean, because none of them
+    // decodes a ledger. Measured here before this line existed: the dev server
+    // transformed `compact-runtime/dist/index.js` from BOTH trees, and the
+    // control portal sat on "cargando" forever while the retry in `keepAlive`
+    // swallowed the error and tried again.
+    dedupe: [
+      '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/onchain-runtime-v3',
+      '@midnight-ntwrk/compact-runtime',
+    ],
     alias: {
       '@amparo/contracts': fileURLToPath(new URL('../contracts/src/midnight', import.meta.url)),
       // Compiler output and the witness implementation. Separate from the alias

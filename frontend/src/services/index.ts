@@ -31,12 +31,13 @@ import {
   chain as mockChain,
   credentialService as mockCredential,
   disclosureService as mockDisclosure,
-  identityService as mockIdentity,
   oversightFeed as mockOversight,
   reporterFeed as mockFeed,
   reportingService as mockReporting,
   responseService as mockResponses,
 } from './mock'
+// Real in both modes: the phrase and the credential store are local either way.
+import { passphraseIdentity } from './identity'
 
 export const CHAIN_MODE = useChain()
 
@@ -70,10 +71,10 @@ function chainServices(): Services {
     // is readable by anyone: that is the accountability claim.
     oversightFeed: new ChainOversightFeed(providers, config),
     responseService: new ChainResponseService(providers, config),
-    // Neither of these has a circuit. They are the same demo stand-ins in both
-    // modes, and both say so on screen.
+    // Selective disclosure has no circuit and says so on screen.
     disclosureService: mockDisclosure,
-    identityService: mockIdentity,
+    // Not a stand-in: the phrase really derives the secret this feed reads.
+    identityService: passphraseIdentity,
     titleOf: (caseCommitment) => `Caso ${caseCommitment.slice(0, 8)}…`,
   }
 }
@@ -86,7 +87,10 @@ function mockServices(): Services {
     oversightFeed: mockOversight,
     responseService: mockResponses,
     disclosureService: mockDisclosure,
-    identityService: mockIdentity,
+    // Same implementation as chain mode. Unlocking here proves the phrase
+    // derives and stores a credential; it proves nothing about a filing, because
+    // the feed above it is scripted.
+    identityService: passphraseIdentity,
     titleOf: (caseCommitment) => mockChain.titleOf(caseCommitment),
   }
 }

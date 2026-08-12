@@ -355,9 +355,7 @@ export const disclosureService: DisclosureService = {
   },
 }
 
-export const identityService: IdentityService = {
-  async unlock() {
-    await wait(1500)
-    return { subject: 'demo', voiceProven: false }
-  },
-}
+// No mock identity. Deriving the secret from the phrase and storing it are local
+// in both modes, so there is nothing here for a mock to stand in for, and a
+// second implementation would only be able to disagree with the real one.
+// `passphraseIdentity` in `identity.ts` is what both modes use.
