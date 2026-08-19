@@ -1,7 +1,11 @@
 // merkle-mirror.ts — off-chain mirror of an on-chain Merkle tree of Bytes<32>
 // leaves, used to build the membership paths that circuits consume.
 //
-// Two trees in this contract need one: the admitted-case registry and the
+// USED BY THE TESTS ONLY, and that is the point of it now. Production reads
+// paths straight off the ledger with `findPathForLeaf`, so nothing mirrors a
+// tree any more. What is left is the ability to build a tree the contract has
+// never seen - which is exactly what the adversarial cases need to forge one
+// and watch `checkRoot` reject it.
 // filing-nullifier tree. Same shape, same depth, so one factory serves both
 // rather than a copy per tree.
 //

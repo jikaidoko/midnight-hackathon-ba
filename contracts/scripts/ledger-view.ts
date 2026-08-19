@@ -82,8 +82,20 @@ const port = envInt('MN_LEDGER_VIEW_PORT', 8090);
  * How long the view tolerates hearing NOTHING before it treats the stream as
  * dead and rebuilds it. See the subscription below for why silence needs a
  * deadline of its own on top of the reconnect.
+ *
+ * Ten minutes, and the number comes from what the stream actually emits.
+ * `contractStateObservable` filters block events down to actions at ONE address,
+ * so it is silent whenever nobody is calling the contract - not once per block.
+ * A quiet chain is the normal state of this view, and at the old 30s the page
+ * rebuilt its subscription twice a minute while sitting on a projector, printing
+ * a timeout line each time and accruing a "reconnects" count that reads as a
+ * fault. The state stayed correct throughout; the number was the lie.
+ *
+ * Long enough to survive a pitch, short enough that a genuinely dead indexer
+ * still surfaces: the staleness dot uses 2.5x this, so it goes amber well before
+ * anyone would otherwise notice.
  */
-const HEARTBEAT_MS = envInt('MN_LEDGER_VIEW_HEARTBEAT_MS', 30_000);
+const HEARTBEAT_MS = envInt('MN_LEDGER_VIEW_HEARTBEAT_MS', 600_000);
 
 /**
  * Pause before resubscribing. The observed failure ends the stream in about ten
@@ -117,7 +129,15 @@ interface Snapshot {
   updates: number;
   /** ISO time we last heard anything at all, including an unchanged re-read. */
   checkedAt: string | null;
-  /** Times the stream was rebuilt. A number that climbs means a sick indexer. */
+  /**
+   * Times the stream was rebuilt.
+   *
+   * NOT a health metric on its own. A rebuild happens on completion, on error,
+   * and on silence past the heartbeat - and silence is normal here, because the
+   * stream only speaks when someone calls the contract. Read it next to
+   * `checkedAt`: rebuilds with a fresh `checkedAt` are a quiet chain, rebuilds
+   * with a stale one are a sick indexer.
+   */
   reconnects: number;
 }
 

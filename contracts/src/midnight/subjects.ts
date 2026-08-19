@@ -188,9 +188,16 @@ export function subjectLabel(argv: string[] = process.argv.slice(2)): string {
  * as a positional, which is silent and wrong: `deploy` reads `positionals()[0]`
  * as the review threshold and `admit-case` reads it as the case commitment, so
  * the first unlisted flag turns those into `BigInt('<some string>')` and a hex
- * parse of a flag value. Add the flag here when you add it anywhere.
+ * parse of a flag value.
+ *
+ * `--detail` is the one that showed why "silent" is the dangerous half. It was
+ * missing here, and `respond-case` reads `positionals()[2]` as the answer's
+ * GROUNDS - a write-once, unrewritable ledger entry. Passing `--detail` anywhere
+ * but last shifted its value into that slot, `encodeGrounds` accepted it, the
+ * authority proof succeeded, and the wrong text went on chain permanently with
+ * no error anywhere. Add the flag here when you add it anywhere.
  */
-const VALUED_FLAGS = new Set(['--subject', '--context']);
+const VALUED_FLAGS = new Set(['--subject', '--context', '--detail']);
 
 /** Positional arguments, with flags and their values removed. */
 export function positionals(argv: string[] = process.argv.slice(2)): string[] {

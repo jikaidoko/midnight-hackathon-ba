@@ -1,11 +1,13 @@
-// useOversight.ts — the control portal's subscription to the public ledger.
+// useOversight.ts — the control portal's subscriptions.
 //
-// One stream, and it takes no secret. Everything the portal shows — the
-// backlog, which cases crossed the threshold, which of those were answered and
-// which were not — comes from state any observer can read. That is not a
-// convenience: an oversight view that required a credential would quietly
-// delete the property the whole design rests on, which is that "nobody told us"
-// is not available as a defence.
+// The backlog and each case's answer both come out of `derivePublicView`, which
+// takes no secret: this is the view any observer can build, which is the property
+// that makes "nobody told us" unavailable as a defence.
+//
+// An earlier version of this note said responses came from "a circuit this build
+// does not carry". `respondToCase` is in the contract now, so that half is real.
+// What an unanswered case renders is the ABSENCE of an entry - the observable the
+// circuit exists to produce, not a gap in the wiring.
 
 import { useEffect, useState } from 'react'
 import type { PublicLedgerView } from './contracts'

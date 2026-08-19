@@ -3,23 +3,25 @@
 Midnight Hackathon Buenos Aires, August 7-8 2026.
 
 Someone reports a case without revealing who they are, and the system can still
-prove two things that today require exposing the reporter: that the case was
-**admitted by a control authority**, and that this person **has already filed N
-times** - without saying how many, which ones, or who.
+prove three things that today require exposing the reporter: that the case was
+**admitted by a control authority**; that this person **has filed at least three
+times** - without saying which cases, how many beyond three, or who; and that the
+authority **answered, or did not**, once enough independent reports converged.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `frontend/` | React + Vite + TS demo UI (Stitch export), mock services behind a Midnight-ready boundary |
+| `frontend/` | React + Vite + TS interface (from a Stitch export). Reporter app plus the oversight portal at `/control`. Chain-backed by default: live contract state and real proofs; `VITE_MN_MODE=mock` swaps in fixtures |
 | `contracts/` | Compact circuits and their TypeScript layer |
-| `contracts/src/amparo.compact` | The contract: case admission, filings, threshold credential, public case alarm |
+| `contracts/src/amparo.compact` | The contract: case admission, filings, threshold credential, public case alarm, and the control body's recorded answer |
 | `contracts/src/amparo-witnesses.ts` | Private inputs the circuits read |
 | `contracts/src/merkle-mirror.ts` | Merkle mirror, used by the adversarial tests to build a forged tree |
 | `contracts/src/verifier.ts` | Off-chain second source for a presented root |
 | `contracts/src/midnight/` | Network configuration, wallet, providers, contract descriptors |
-| `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present, public view |
-| `contracts/src/*.test.ts` | Simulator tests (no proof server) |
+| `contracts/scripts/` | Health check, wallet check, deploy, admit, file, present, respond, public view |
+| `contracts/src/amparo.test.ts` | Simulator tests for the circuits (no proof server) |
+| `contracts/src/midnight/*.test.ts` | Unit tests for the TypeScript layer: derived state, liveness, subject store |
 | `contracts/test/` | End-to-end product journey and the test strategy |
 | `contracts/docker-compose.midnight.yml` | Local standalone network |
 
@@ -29,11 +31,12 @@ threshold, and a credential presented and then refused on replay.
 
 ## Toolchain
 
-- `compactc` **0.31.0** / language **0.23.0**
+- `compactc` **0.31.1** / language **0.23.0**
 - `@midnight-ntwrk/compact-runtime` **0.16.0**
-- Node 22
+- Node 22 or newer
 
-The compiler runs under WSL; the tests run on native Windows Node.
+Built and tested on macOS (arm64) with a native `compact` install; also
+exercised under WSL with native Windows Node.
 
 ## Running
 
@@ -84,7 +87,12 @@ these were two contracts - see below for what changed.
 npm run admit-case -- <64 hex>                     # once per demo case
 npm run file-report -- <64 hex> --subject sofia    # one report, one reporter
 npm run prove-credential -- --subject sofia --context "ministry-of-labour"
+npm run respond-case -- <64 hex> investigation "Se abre expediente 41/2026."
 ```
+
+`respond-case` only works once the case has crossed the threshold: the circuit
+refuses an answer to a case the public never watched escalate, refuses a second
+answer, and refuses blank grounds.
 
 `--subject` names the reporter. Each one gets their own secret and their own
 private-state namespace, created on first use in `contracts/subjects.<network>.json`
@@ -180,8 +188,9 @@ a completion. All three operators are in the pipeline now because they cover
 three different endings: completion, error, and an open socket that has gone
 mute.
 
-**`reporterView$` has the same shape and therefore the same fault**, and the
-frontend consumes it. Fixing it there is tracked separately from this view.
+**`reporterView$` had the same shape and therefore the same fault.** `keepAlive`
+now sits in both pipelines, because the fault belongs to the stream rather than to
+either view - see `liveness.test.ts`, which asserts all three endings.
 
 ### Order matters, and each step rules out a different failure
 
@@ -239,7 +248,11 @@ critical path, not the morning of.
   builds a transaction. After any dependency change:
 
   ```bash
-  npm ls @midnight-ntwrk/ledger-v8 @midnight-ntwrk/onchain-runtime-v3
+  cd frontend && npm run check-wasm
   ```
 
-  Each must report a single resolved version.
+  Run it from `frontend/`, not `npm ls` from `contracts/`: the browser bundle
+  draws from BOTH dependency trees, so two trees each holding one version can
+  still hold two different versions - or two separate installs of the SAME
+  version, which are still two wasm instances - while every per-tree `npm ls`
+  reports success.

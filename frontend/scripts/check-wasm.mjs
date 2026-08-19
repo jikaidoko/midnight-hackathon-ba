@@ -31,17 +31,51 @@
 // Failing when it cannot measure is deliberate, and it is enforced rather than
 // asserted: every read distinguishes "absent here, keep looking" from "I could
 // not read this". A guard that stays silent when its subject is missing is
-// indistinguishable from one that approved.
+// indistinguishable from one that approved. Two independent things can make it
+// unable to measure - a tree laid out by another installer, and a `dedupe` block
+// that no longer exists - and both are hard failures rather than skips.
 
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
-// Only the wasm carriers. `compact-runtime` is plain JavaScript, but it
-// re-exports the wasm classes from `onchain-runtime-v3`, so its instance
-// identity follows that package rather than standing on its own - which is why
-// pinning these two is what keeps its re-export surface single.
-const PACKAGES = ['@midnight-ntwrk/ledger-v8', '@midnight-ntwrk/onchain-runtime-v3'];
+// The wasm carriers, plus `compact-runtime`.
+//
+// `compact-runtime` was previously left out as "plain JavaScript: two copies of
+// it are harmless as long as they resolve to the same runtime underneath". That
+// condition is precisely the one that fails. It is the module that builds a
+// `QueryContext`, and it reaches the runtime through its OWN resolution - so a
+// second copy of it selects a second `onchain-runtime-v3`, and the browser dies
+// with `expected instance of ChargedState` while every version reported here
+// matches.
+const PACKAGES = [
+  '@midnight-ntwrk/ledger-v8',
+  '@midnight-ntwrk/onchain-runtime-v3',
+  '@midnight-ntwrk/compact-runtime',
+];
+
+/**
+ * Packages the bundler is told to collapse to one copy.
+ *
+ * Read out of the config rather than restated here: a list that can drift from
+ * the thing it describes is worse than no list. A missing block is a hard
+ * failure for the same reason an uninstalled tree is - the check would otherwise
+ * pass without having measured its subject.
+ */
+async function dedupedPackages() {
+  const configPath = fileURLToPath(new URL('../vite.config.ts', import.meta.url));
+  const source = await readFile(configPath, 'utf8');
+  const block = /dedupe\s*:\s*\[([^\]]*)\]/.exec(source);
+  if (!block) {
+    throw new Error(
+      `No \`resolve.dedupe\` block found in ${configPath}.\n` +
+        '  Two trees feed the browser bundle, so every wasm package installed in both has to\n' +
+        '  be deduped there or the page fails on the first decode. This check cannot verify an\n' +
+        '  invariant the config no longer states.',
+    );
+  }
+  return [...block[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
+}
 
 const TREES = [
   { name: 'frontend', root: fileURLToPath(new URL('../node_modules', import.meta.url)) },
@@ -157,6 +191,8 @@ async function main() {
   const problems = [];
   const report = [];
 
+  // Layout first. A tree this walk cannot model makes every count below
+  // meaningless, so there is no point measuring one and reporting on it.
   for (const tree of TREES) {
     const reason = await foreignLayout(tree);
     if (reason) {
@@ -170,11 +206,15 @@ async function main() {
   }
 
   if (problems.length === 0) {
+    const deduped = await dedupedPackages();
+
     for (const pkg of PACKAGES) {
       const versionsAcrossTrees = new Map();
+      const pathsAcrossTrees = [];
 
       for (const tree of TREES) {
         const copies = await findCopies(tree.root, pkg);
+        for (const copy of copies) pathsAcrossTrees.push({ tree: tree.name, ...copy });
 
         // The measurement guard. "Not installed" is not "installed once": both
         // trees feed the bundle, so an absent one means this run proved nothing.
@@ -222,6 +262,27 @@ async function main() {
             '\n  Both reach the browser. Pin the same version in both `overrides` blocks.',
         );
       }
+
+      // The case MATCHING versions cannot reach, and the one that actually broke
+      // the page: two separate installs of the same version are still two wasm
+      // instances. Nothing in a version comparison can see it - this check
+      // reported green for the whole time the control screens could not load.
+      //
+      // Two copies are fine when the bundler is told to collapse them, so that is
+      // what is asserted rather than "exactly one copy": the trees are
+      // deliberately unhoisted so each `overrides` block stays authoritative over
+      // its own.
+      if (pathsAcrossTrees.length > 1 && !deduped.includes(pkg)) {
+        problems.push(
+          `${pkg} resolves to ${pathsAcrossTrees.length} separate installs and is NOT in\n` +
+            '  `resolve.dedupe` in vite.config.ts:\n' +
+            pathsAcrossTrees.map((copy) => `    ${copy.version}  ${copy.path}`).join('\n') +
+            '\n  Same version is not the same instance. Each install carries its own wasm module\n' +
+            '  owning its own classes, so a value built by one fails the other\'s type check -\n' +
+            '  `expected instance of ChargedState` - after a query that succeeded. Add it to\n' +
+            '  `resolve.dedupe`.',
+        );
+      }
     }
   }
 
@@ -231,7 +292,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('One resolved path per package, in every tree the bundle draws from:');
+  console.log('One instance per package in the browser bundle (deduped where installed twice):');
   console.log(report.join('\n'));
 }
 
